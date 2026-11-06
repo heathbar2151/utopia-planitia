@@ -27,6 +27,7 @@ spec:
           nfsMount: "true"
         annotations:
           reloader.stakater.com/auto: "true"
+          ci-smoke-test: "do-not-merge"
         initContainers:
           # Kavita reads its OIDC issuer, client ID and secret only from
           # appsettings.json on the config volume. Write them there on every
