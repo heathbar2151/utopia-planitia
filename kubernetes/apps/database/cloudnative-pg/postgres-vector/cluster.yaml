@@ -1,0 +1,61 @@
+---
+# yaml-language-server: $schema=https://kubernetes-schemas.pages.dev/postgresql.cnpg.io/cluster_v1.json
+# Shared PostgreSQL 18 cluster for apps that need vector search.
+# TensorChord's CNPG image = CNPG's PG image + VectorChord; pgvector
+# comes from the CNPG base. Each app gets a managed role here plus its own
+# Database object, so apps never need superuser. All TCP connections must
+# use TLS (pg_hba below).
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: postgres-vector
+spec:
+  instances: 3
+  imageName: ghcr.io/tensorchord/cloudnative-vectorchord:18.6-1.1.1
+  primaryUpdateStrategy: unsupervised
+  primaryUpdateMethod: switchover
+  enableSuperuserAccess: false
+  storage:
+    size: 10Gi
+    storageClass: ceph-block
+  postgresql:
+    shared_preload_libraries:
+      - vchord.so
+    parameters:
+      max_connections: "200"
+      shared_buffers: 256MB
+    pg_hba:
+      # CNPG appends its own rules after these; reject anything that isn't
+      # SSL over the network (local socket connections are unaffected).
+      - hostnossl all all 0.0.0.0/0 reject
+      - hostnossl all all ::/0 reject
+  managed:
+    roles:
+      - name: immich
+        ensure: present
+        login: true
+        passwordSecret:
+          name: postgres-vector-immich
+      - name: zulip
+        ensure: present
+        login: true
+        passwordSecret:
+          name: postgres-vector-zulip
+  affinity:
+    enablePodAntiAffinity: true
+    podAntiAffinityType: required
+    topologyKey: kubernetes.io/hostname
+  resources:
+    requests:
+      cpu: 100m
+      memory: 512Mi
+    limits:
+      memory: 2Gi
+  # Metrics are scraped by podmonitor.yaml (enablePodMonitor is deprecated).
+  plugins:
+    - name: barman-cloud.cloudnative-pg.io
+      isWALArchiver: true
+      parameters:
+        barmanObjectName: postgres-vector
+        # Bump when re-bootstrapping from a backup of an earlier generation.
+        serverName: postgres-vector-v1

@@ -1,0 +1,248 @@
+{
+  $schema: 'https://docs.renovatebot.com/renovate-schema.json',
+  extends: [
+    'config:recommended',
+    'docker:enableMajor',
+    ':automergeBranch',
+    ':dependencyDashboard',
+    ':disableRateLimiting',
+    ':semanticCommits',
+  ],
+  // :disableRateLimiting above removes every PR limit. With automerge on,
+  // Renovate keeps its PRs up to date with main, so each merge to main
+  // re-runs CI on every open PR at once. Cap open PRs; the rest wait on
+  // the dashboard.
+  prConcurrentLimit: 10,
+  dependencyDashboard: true,
+  dependencyDashboardTitle: 'Renovate Dashboard 🤖',
+  suppressNotifications: [
+    'prEditedNotification',
+    'prIgnoreNotification',
+  ],
+  schedule: [
+    'every weekend',
+  ],
+  ignorePaths: [
+    '**/*.sops.*',
+  ],
+  flux: {
+    managerFilePatterns: [
+      '/(^|/)kubernetes/.+\\.ya?ml(?:\\.j2)?$/',
+    ],
+  },
+  'helm-values': {
+    managerFilePatterns: [
+      '/(^|/)kubernetes/.+\\.ya?ml(?:\\.j2)?$/',
+    ],
+  },
+  helmfile: {
+    managerFilePatterns: [
+      '/(^|/)helmfile\\.ya?ml(?:\\.j2)?$/',
+    ],
+  },
+  kubernetes: {
+    managerFilePatterns: [
+      '/(^|/)kubernetes/.+\\.ya?ml(?:\\.j2)?$/',
+    ],
+  },
+  kustomize: {
+    managerFilePatterns: [
+      '/(^|/)kustomization\\.ya?ml(?:\\.j2)?$/',
+    ],
+  },
+  pip_requirements: {
+    managerFilePatterns: [
+      '/(^|/)[\\w-]*requirements(-\\w+)?\\.(txt|pip)(?:\\.j2)?$/',
+    ],
+  },
+  packageRules: [
+    {
+      description: ["Auto-merge patch updates"],
+      matchUpdateTypes: ["patch"],
+      automerge: true,
+      automergeType: "pr",
+      automergeSchedule: ["after 11pm and before 6am"],
+    },
+    {
+      description: [
+        'Auto-merge GitHub Actions for minor and patch',
+      ],
+      matchManagers: [
+        'github-actions',
+      ],
+      automerge: true,
+      automergeType: 'pr',
+      matchUpdateTypes: [
+        'minor',
+        'patch',
+      ],
+    },
+    {
+      description: [
+        'Flux Operator Group',
+      ],
+      groupName: 'Flux Operator',
+      matchDatasources: [
+        'docker',
+      ],
+      group: {
+        commitMessageTopic: '{{{groupName}}} group',
+      },
+      matchPackageNames: [
+        '/flux-operator/',
+        '/flux-instance/',
+      ],
+    },
+    {
+      description: [
+        'Talos and Kubernetes versions (talos/topf.yaml + tuppr upgrade CRs) start a cluster upgrade as soon as they merge - never automerge them',
+      ],
+      matchPackageNames: [
+        'siderolabs/talos',
+        'ghcr.io/siderolabs/kubelet',
+      ],
+      automerge: false,
+    },
+    {
+      description: [
+        'Hold Kubernetes at 1.36 until Cilium supports 1.37',
+      ],
+      matchPackageNames: [
+        'ghcr.io/siderolabs/kubelet',
+      ],
+      allowedVersions: '/^v1\\.36\\./',
+    },
+    {
+      matchUpdateTypes: [
+        'major',
+      ],
+      semanticCommitType: 'feat',
+      commitMessagePrefix: '{{semanticCommitType}}({{semanticCommitScope}})!:',
+      commitMessageExtra: '( {{currentVersion}} → {{newVersion}} )',
+    },
+    {
+      matchUpdateTypes: [
+        'minor',
+      ],
+      semanticCommitType: 'feat',
+      commitMessageExtra: '( {{currentVersion}} → {{newVersion}} )',
+    },
+    {
+      matchUpdateTypes: [
+        'patch',
+      ],
+      semanticCommitType: 'fix',
+      commitMessageExtra: '( {{currentVersion}} → {{newVersion}} )',
+    },
+    {
+      matchUpdateTypes: [
+        'digest',
+      ],
+      semanticCommitType: 'chore',
+      commitMessageExtra: '( {{currentDigestShort}} → {{newDigestShort}} )',
+    },
+    {
+      matchDatasources: [
+        'docker',
+      ],
+      semanticCommitScope: 'container',
+      commitMessageTopic: 'image {{depName}}',
+    },
+    {
+      matchDatasources: [
+        'helm',
+      ],
+      semanticCommitScope: 'helm',
+      commitMessageTopic: 'chart {{depName}}',
+    },
+    {
+      matchManagers: [
+        'github-actions',
+      ],
+      semanticCommitType: 'ci',
+      semanticCommitScope: 'github-action',
+      commitMessageTopic: 'action {{depName}}',
+    },
+    {
+      matchDatasources: [
+        'github-releases',
+      ],
+      semanticCommitScope: 'github-release',
+      commitMessageTopic: 'release {{depName}}',
+    },
+    {
+      matchUpdateTypes: [
+        'major',
+      ],
+      labels: [
+        'type/major',
+      ],
+    },
+    {
+      matchUpdateTypes: [
+        'minor',
+      ],
+      labels: [
+        'type/minor',
+      ],
+    },
+    {
+      matchUpdateTypes: [
+        'patch',
+      ],
+      labels: [
+        'type/patch',
+      ],
+    },
+    {
+      matchDatasources: [
+        'docker',
+      ],
+      addLabels: [
+        'renovate/container',
+      ],
+    },
+    {
+      matchDatasources: [
+        'helm',
+      ],
+      addLabels: [
+        'renovate/helm',
+      ],
+    },
+    {
+      matchManagers: [
+        'github-actions',
+      ],
+      addLabels: [
+        'renovate/github-action',
+      ],
+    },
+    {
+      matchDatasources: [
+        'github-releases',
+      ],
+      addLabels: [
+        'renovate/github-release',
+      ],
+    },
+  ],
+  customManagers: [
+    {
+      customType: 'regex',
+      description: [
+        'Process annotated dependencies',
+      ],
+      managerFilePatterns: [
+        '/(^|/).+\\.env(?:\\.j2)?$/',
+        '/(^|/).+\\.sh(?:\\.j2)?$/',
+        '/(^|/).+\\.ya?ml(?:\\.j2)?$/',
+      ],
+      matchStrings: [
+        'datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)( repository=(?<registryUrl>\\S+))?\\n.+(:\\s|=)(&\\S+\\s)?(?<currentValue>\\S+)',
+        'datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\\n.+/(?<currentValue>(v|\\d)[^/]+)',
+      ],
+      datasourceTemplate: '{{#if datasource}}{{{datasource}}}{{else}}github-releases{{/if}}',
+    },
+  ],
+}

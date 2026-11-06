@@ -1,0 +1,25 @@
+---
+# yaml-language-server: $schema=https://k8s-schemas.home-operations.com/gateway.envoyproxy.io/securitypolicy_v1alpha1.json
+# Authentik login in front of the Filebrowser web UI.
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: SecurityPolicy
+metadata:
+  name: filebrowser-oidc
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: filebrowser
+  oidc:
+    provider:
+      issuer: https://${SECRET_HOST_AUTHENTIK}.${SECRET_DOMAIN}/application/o/filebrowser/
+    clientIDRef:
+      group: ""
+      kind: Secret
+      name: filebrowser-oidc
+    clientSecret:
+      group: ""
+      kind: Secret
+      name: filebrowser-oidc
+    redirectURL: https://filebrowser.${SECRET_DOMAIN}/oauth2/callback
+    scopes: ["openid", "email", "profile"]

@@ -1,0 +1,34 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/home-operations/tuppr/main/charts/tuppr/crds/tuppr.home-operations.com_talosupgrades.yaml
+# Rolling Talos upgrade, one node at a time, run from a healthy node.
+# Bump spec.talos.version one minor at a time (tuppr doesn't enforce the
+# upgrade path) and keep talos/topf.yaml's talosVersion in step. The
+# installer image is the node's current factory image with the tag swapped,
+# so the schematic (system extensions) carries over.
+apiVersion: tuppr.home-operations.com/v1alpha1
+kind: TalosUpgrade
+metadata:
+  name: talos
+spec:
+  talos:
+    # renovate: datasource=github-releases depName=siderolabs/talos
+    version: v1.14.5
+  policy:
+    rebootMode: powercycle
+  healthChecks:
+    - apiVersion: v1
+      kind: Node
+      expr: status.conditions.filter(c, c.type == "Ready").all(c, c.status == "True")
+      timeout: 50m
+    - apiVersion: postgresql.cnpg.io/v1
+      kind: Cluster
+      name: postgres16
+      namespace: database
+      expr: status.readyInstances == 3
+      timeout: 50m
+    - apiVersion: ceph.rook.io/v1
+      kind: CephCluster
+      name: rook-ceph
+      namespace: rook-ceph
+      expr: status.ceph.health in ["HEALTH_OK"]
+      timeout: 50m

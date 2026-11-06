@@ -1,0 +1,125 @@
+---
+# yaml-language-server: $schema=https://kubernetes-schemas.pages.dev/helm.toolkit.fluxcd.io/helmrelease_v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: otel-collector
+spec:
+  interval: 30m
+  chart:
+    spec:
+      chart: opentelemetry-collector
+      version: 0.176.1
+      sourceRef:
+        kind: HelmRepository
+        name: open-telemetry
+        namespace: flux-system
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    cleanupOnFail: true
+    remediation:
+      strategy: rollback
+      retries: 3
+  values:
+    # Gateway: the single OTLP endpoint for everything in the cluster
+    # (apps, Envoy Gateway). Apps get
+    # otel-collector.observability.svc.cluster.local:4317 (gRPC) / :4318
+    # (HTTP) and never talk to Tempo/Loki/Prometheus directly.
+    fullnameOverride: otel-collector
+    mode: deployment
+    replicaCount: 2
+    image:
+      repository: ghcr.io/open-telemetry/opentelemetry-collector-releases/opentelemetry-collector-contrib
+    presets:
+      # Adds k8s.namespace.name, k8s.pod.name, k8s.deployment.name, ... to
+      # everything, matched by the sender's pod IP (plus the RBAC for it).
+      kubernetesAttributes:
+        enabled: true
+    config:
+      receivers:
+        # OTLP only. null removes the chart defaults (top-level release, so
+        # Helm's null-removal works here).
+        jaeger: null
+        zipkin: null
+        prometheus: null
+      processors:
+        # Drop health-check noise: Gatus probes every route through the
+        # gateway once a minute. Covers old and new HTTP semconv
+        # names and Envoy's own span tags. error_mode ignore: a condition
+        # on a missing attribute just doesn't match.
+        filter/probes:
+          error_mode: ignore
+          traces:
+            span:
+              - attributes["user_agent.original"] == "Gatus/1.0"
+              - attributes["http.user_agent"] == "Gatus/1.0"
+              - attributes["user_agent"] == "Gatus/1.0"
+              - IsMatch(attributes["url.path"], "^/(healthz|readyz|-/healthy|-/ready)$")
+              - IsMatch(attributes["http.target"], "^/(healthz|readyz|-/healthy|-/ready)$")
+              - IsMatch(attributes["http.url"], "/(healthz|readyz|-/healthy|-/ready)$")
+      exporters:
+        otlp/tempo:
+          endpoint: tempo.observability.svc.cluster.local:4317
+          tls:
+            insecure: true
+        # Prometheus 3 native OTLP receiver (enableOTLPReceiver); the
+        # exporter appends /v1/metrics.
+        otlphttp/prometheus:
+          endpoint: http://prometheus-operated.observability.svc.cluster.local:9090/api/v1/otlp
+          tls:
+            insecure: true
+        # Loki 3 native OTLP ingest; the exporter appends /v1/logs.
+        otlphttp/loki:
+          endpoint: http://loki-headless.observability.svc.cluster.local:3100/otlp
+          tls:
+            insecure: true
+      service:
+        pipelines:
+          traces:
+            receivers: [otlp]
+            processors: [memory_limiter, k8sattributes, filter/probes, batch]
+            exporters: [otlp/tempo]
+          metrics:
+            receivers: [otlp]
+            processors: [memory_limiter, k8sattributes, batch]
+            exporters: [otlphttp/prometheus]
+          logs:
+            receivers: [otlp]
+            processors: [memory_limiter, k8sattributes, batch]
+            exporters: [otlphttp/loki]
+    ports:
+      jaeger-compact:
+        enabled: false
+      jaeger-thrift:
+        enabled: false
+      jaeger-grpc:
+        enabled: false
+      zipkin:
+        enabled: false
+      # Collector's own metrics, scraped by the ServiceMonitor below.
+      metrics:
+        enabled: true
+    serviceMonitor:
+      enabled: true
+    podDisruptionBudget:
+      enabled: true
+      minAvailable: 1
+    topologySpreadConstraints:
+      - maxSkew: 1
+        topologyKey: kubernetes.io/hostname
+        whenUnsatisfiable: ScheduleAnyway
+        labelSelector:
+          matchLabels:
+            app.kubernetes.io/name: opentelemetry-collector
+            app.kubernetes.io/instance: otel-collector
+        matchLabelKeys:
+          - pod-template-hash
+    # memory_limiter and GOMEMLIMIT are both derived from this limit.
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        memory: 512Mi

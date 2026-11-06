@@ -1,0 +1,24 @@
+# Keep unpacked image layers (spegel serves them to the other nodes).
+apiVersion: v1alpha1
+kind: CRICustomizationConfig
+name: containerd
+content: |
+  [plugins."io.containerd.cri.v1.images"]
+    discard_unpacked_layers = false
+---
+# NFS mount defaults for in-tree NFS volumes.
+apiVersion: v1alpha1
+kind: EtcFileConfig
+name: nfsmount.conf
+mode: 0o644
+contents: |
+  [ NFSMount_Global_Options ]
+  nfsvers=4.2
+  hard=True
+  noatime=True
+  nconnect=4
+  nocto=True
+  rsize=1048576
+  wsize=1048576
+  timeo=600
+  retrans=2

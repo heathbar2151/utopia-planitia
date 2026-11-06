@@ -1,0 +1,13 @@
+---
+groups:
+  - name: plex
+    rules:
+      - alert: PlexDatabaseIsBusy
+        expr: |
+          sum by (service_name) (count_over_time({service_name="plex"} |~ "(?i)retry busy DB"[5m])) > 0
+        for: 5m
+        annotations:
+          summary: >-
+            {{ $labels.service_name }} is experiencing database issues
+        labels:
+          severity: critical

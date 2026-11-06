@@ -1,0 +1,9 @@
+apiVersion: postgresql.cnpg.io/v1
+kind: ScheduledBackup
+metadata:
+  name: weekly-backup
+spec:
+  schedule: "0 0 0 * * 6"
+  cluster:
+    name: postgres16
+  method: barmanObjectStore

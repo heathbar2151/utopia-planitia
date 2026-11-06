@@ -1,0 +1,14 @@
+---
+# yaml-language-server: $schema=https://kubernetes-schemas.pages.dev/policy/poddisruptionbudget_v1.json
+# Voluntary disruptions (node drains, Talos upgrades) take at most one of the
+# 2 replicas at a time. The rollout itself isn't covered by this - that's the
+# Deployment's RollingUpdate strategy plus readiness probes.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: ${SECRET_SF2_NAME}-api
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/controller: ${SECRET_SF2_NAME}-api

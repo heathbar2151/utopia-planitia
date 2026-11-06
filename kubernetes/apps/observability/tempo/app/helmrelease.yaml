@@ -1,0 +1,79 @@
+---
+# yaml-language-server: $schema=https://kubernetes-schemas.pages.dev/helm.toolkit.fluxcd.io/helmrelease_v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: tempo
+spec:
+  interval: 30m
+  timeout: 10m
+  chart:
+    spec:
+      chart: tempo
+      version: 3.2.0
+      sourceRef:
+        kind: HelmRepository
+        name: grafana-community
+        namespace: flux-system
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    cleanupOnFail: true
+    remediation:
+      strategy: rollback
+      retries: 3
+  values:
+    # Single binary (monolithic) Tempo, traces on a local PVC. Fed only by the
+    # OTel Collector (OTLP) - apps never send here directly.
+    tempo:
+      reportingEnabled: false
+      # Match Prometheus/Loki (3d).
+      retention: 72h
+      # The chart's default Jaeger receivers stay on: its Service template
+      # reads receivers.jaeger.protocols directly, so `jaeger: null` breaks
+      # the install. Unused - only the OTel Collector sends here, over OTLP.
+      receivers:
+        otlp:
+          protocols:
+            grpc:
+              endpoint: 0.0.0.0:4317
+            http:
+              endpoint: 0.0.0.0:4318
+      storage:
+        trace:
+          backend: local
+          local:
+            path: /var/tempo/traces
+          wal:
+            path: /var/tempo/wal
+      # Service graphs + RED span metrics, remote-written to Prometheus
+      # (needs enableRemoteWriteReceiver in kube-prometheus-stack).
+      metricsGenerator:
+        enabled: true
+        remoteWriteUrl: http://prometheus-operated.observability.svc.cluster.local:9090/api/v1/write
+        storage:
+          path: /var/tempo/generator
+        registry:
+          external_labels:
+            source: tempo
+      overrides:
+        defaults:
+          metrics_generator:
+            processors:
+              - service-graphs
+              - span-metrics
+      resources:
+        requests:
+          cpu: 50m
+          memory: 256Mi
+        limits:
+          memory: 1Gi
+    persistence:
+      enabled: true
+      storageClassName: ceph-block
+      # Must stay in step with the live StatefulSet once created -
+      # volumeClaimTemplates are immutable (see the Loki HelmRelease).
+      size: 20Gi
+    serviceMonitor:
+      enabled: true

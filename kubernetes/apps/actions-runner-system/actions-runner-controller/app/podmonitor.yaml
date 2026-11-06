@@ -1,0 +1,14 @@
+---
+# yaml-language-server: $schema=https://kubernetes-schemas.pages.dev/monitoring.coreos.com/podmonitor_v1.json
+# Scrapes the ARC controller and the per-scale-set listener pods, both of
+# which expose a "metrics" port (see helmrelease.yaml metrics block). Empty
+# selector on purpose: the listener pods are created by the controller, not
+# the chart, so there's no single chart label covering both.
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: actions-runner-controller
+spec:
+  selector: {}
+  podMetricsEndpoints:
+    - port: metrics

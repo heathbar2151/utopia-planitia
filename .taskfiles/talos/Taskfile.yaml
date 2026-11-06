@@ -1,0 +1,80 @@
+---
+# yaml-language-server: $schema=https://taskfile.dev/schema.json
+version: '3'
+
+# Talos machine configs are built by topf from talos/topf.yaml + patches
+# (see talos/README.md). topf shows a redacted diff and asks before every
+# apply/upgrade. Routine Talos and Kubernetes upgrades are done by tuppr
+# (kubernetes/apps/system-upgrade/tuppr), not these tasks.
+
+tasks:
+
+  diff:
+    desc: Show pending Talos config changes for all nodes (or NODE=drone-0x)
+    dir: '{{.TALOS_DIR}}'
+    cmd: topf apply --dry-run {{if .NODE}}--nodes-filter '^{{.NODE}}$'{{end}}
+    preconditions:
+      - test -f {{.TALOS_DIR}}/topf.yaml
+      - test -f {{.SOPS_AGE_KEY_FILE}}
+      - which topf sops
+
+  apply-node:
+    desc: Apply Talos config to one node, with diff and confirmation [NODE=required, e.g. drone-01]
+    dir: '{{.TALOS_DIR}}'
+    cmd: topf apply --nodes-filter '^{{.NODE}}$' --mode '{{.MODE}}'
+    vars:
+      MODE: '{{.MODE | default "auto"}}'
+    requires:
+      vars: [NODE]
+    preconditions:
+      - test -f {{.TALOS_DIR}}/topf.yaml
+      - test -f {{.SOPS_AGE_KEY_FILE}}
+      - which topf sops
+
+  apply:
+    desc: Apply Talos config to all nodes, one at a time, with diff and confirmation
+    dir: '{{.TALOS_DIR}}'
+    cmd: topf apply
+    preconditions:
+      - test -f {{.TALOS_DIR}}/topf.yaml
+      - test -f {{.SOPS_AGE_KEY_FILE}}
+      - which topf sops
+
+  upgrade-node:
+    desc: Manually upgrade Talos on one node to topf.yaml's talosVersion [NODE=required]
+    dir: '{{.TALOS_DIR}}'
+    cmd: topf upgrade --nodes-filter '^{{.NODE}}$' --reboot-mode powercycle
+    requires:
+      vars: [NODE]
+    preconditions:
+      - test -f {{.TALOS_DIR}}/topf.yaml
+      - which topf
+
+  upgrade-k8s:
+    desc: Manually upgrade Kubernetes to topf.yaml's kubernetesVersion
+    dir: '{{.TALOS_DIR}}'
+    cmd: >-
+      talosctl --nodes "$(sops -d topf.yaml | yq '[.nodes[] | select(.role == "control-plane")][0].ip')"
+      upgrade-k8s --to "$(yq '.kubernetesVersion' topf.yaml)"
+    preconditions:
+      - talosctl config info
+      - which talosctl sops yq
+
+  client-config:
+    desc: Regenerate the talosctl client config (TALOSCONFIG) from the secrets bundle
+    dir: '{{.TALOS_DIR}}'
+    cmds:
+      - mkdir -p "$(dirname '{{.TALOSCONFIG}}')"
+      - topf talosconfig > '{{.TALOSCONFIG}}'
+    preconditions:
+      - test -f {{.TALOS_DIR}}/topf.yaml
+      - test -f {{.SOPS_AGE_KEY_FILE}}
+      - which topf sops
+
+  reset:
+    desc: Resets nodes back to maintenance mode (DESTRUCTIVE)
+    dir: '{{.TALOS_DIR}}'
+    prompt: This will destroy your cluster and reset the nodes back to maintenance mode... continue?
+    cmd: topf reset --confirm=false
+    preconditions:
+      - which topf

@@ -1,0 +1,9 @@
+---
+# Bootstrap-only overrides for coredns. The shared values file
+# (kubernetes/apps/kube-system/coredns/app/helm-values.yaml) uses Flux
+# postBuild variables, which helmfile doesn't substitute, so the real values
+# are decrypted from cluster-secrets here. Listed after the shared file, so
+# these win.
+{{- $secrets := printf "%s/kubernetes/components/common/cluster-secrets.sops.yaml" (requiredEnv "ROOT_DIR") }}
+service:
+  clusterIP: {{ exec "sops" (list "--decrypt" "--extract" "[\"stringData\"][\"SECRET_COREDNS_IP\"]" $secrets) | quote }}

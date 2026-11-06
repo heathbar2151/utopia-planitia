@@ -1,0 +1,83 @@
+---
+# yaml-language-server: $schema=https://kubernetes-schemas.pages.dev/cilium.io/ciliumnetworkpolicy_v2.json
+# Fence the Authentik server and worker pods in both directions. Volsync
+# mover pods in this namespace are not selected.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: authentik
+spec:
+  endpointSelector:
+    matchExpressions:
+      - key: app.kubernetes.io/name
+        operator: In
+        values: [authentik-server, authentik-worker]
+  ingress:
+    # Kubelet probes.
+    - fromEntities: ["host"]
+    # All user and OIDC traffic arrives through the Envoy gateways.
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: network
+            app.kubernetes.io/name: envoy
+      toPorts:
+        - ports:
+            - port: "9000"
+              protocol: TCP
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: observability
+            app.kubernetes.io/name: prometheus
+      toPorts:
+        - ports:
+            - port: "9300"
+              protocol: TCP
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: database
+            cnpg.io/cluster: postgres16
+      toPorts:
+        - ports:
+            - port: "5432"
+              protocol: TCP
+    # Outpost management through the Kubernetes API. Pinned to 6443: the
+    # kube-apiserver entity covers the node addresses, and without a port
+    # it would open every port on them.
+    - toEntities: ["kube-apiserver"]
+      toPorts:
+        - ports:
+            - port: "6443"
+              protocol: TCP
+    # Requests to app hostnames (for example OIDC back-channel logout)
+    # resolve to the gateways.
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: network
+            app.kubernetes.io/name: envoy
+    # Internet only (update checks, breached-password lookups, SMTP), not
+    # private networks.
+    - toCIDRSet:
+        - cidr: 0.0.0.0/0
+          except:
+            - 10.0.0.0/8
+            - 172.16.0.0/12
+            - 192.168.0.0/16
+            - 100.64.0.0/10
+            - 169.254.0.0/16
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
+            - port: "587"
+              protocol: TCP

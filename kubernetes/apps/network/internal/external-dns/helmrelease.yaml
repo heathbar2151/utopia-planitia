@@ -1,0 +1,69 @@
+---
+# yaml-language-server: $schema=https://kubernetes-schemas.pages.dev/helm.toolkit.fluxcd.io/helmrelease_v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: &app internal-external-dns
+spec:
+  interval: 1h
+  chartRef:
+    kind: OCIRepository
+    name: external-dns
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    cleanupOnFail: true
+    remediation:
+      strategy: rollback
+      retries: 3
+  values:
+    fullnameOverride: *app
+    # logLevel: debug
+    provider:
+      name: webhook
+      webhook:
+        image:
+          repository: ghcr.io/kashalls/external-dns-unifi-webhook
+          tag: v0.9.0@sha256:22f4106f44a0b9ac3c97cf29bbfef93026c1164492152dc797a1d6dc86ddfbb5
+        env:
+          - name: UNIFI_HOST
+            value: https://${SECRET_ROUTER_IP}
+          - name: UNIFI_API_KEY
+            valueFrom:
+              secretKeyRef:
+                name: &secret internal-external-dns-secret
+                key: UNIFI_API_KEY
+          # - name: LOG_LEVEL
+          #   value: "debug"
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: http-webhook
+          initialDelaySeconds: 10
+          timeoutSeconds: 5
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: http-webhook
+          initialDelaySeconds: 10
+          timeoutSeconds: 5
+    extraArgs:
+      - --ignore-ingress-tls-spec
+      # 1.23.0 (appVersion 0.23.0) defaults enable-legacy-annotation-prefix
+      # to false, silently dropping support for external-dns.alpha.
+      # kubernetes.io/* annotations with no error/log line at all - breaks
+      # DNS for any resource still using the old prefix instead of
+      # external-dns.kubernetes.io/. Re-enable both prefixes rather
+      # than migrating every existing annotation across the cluster.
+      - --enable-legacy-annotation-prefix
+    triggerLoopOnEvent: true
+    policy: sync
+    sources: ["service", "gateway-httproute"]
+    txtOwnerId: main
+    txtPrefix: k8s.main.
+    domainFilters: ["${SECRET_DOMAIN}"]
+    serviceMonitor:
+      enabled: true
+    podAnnotations:
+      secret.reloader.stakater.com/reload: *secret

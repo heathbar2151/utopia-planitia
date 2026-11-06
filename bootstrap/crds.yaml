@@ -1,0 +1,16 @@
+---
+# yaml-language-server: $schema=https://json.schemastore.org/helmfile
+# CRD-only extraction for envoy-gateway/Gateway API - rendered with
+# --include-crds and applied directly, never reconciled via `helmfile
+# apply`/`sync` (unlike bootstrap/helmfile.yaml, which
+# scripts/bootstrap-apps.sh does apply for real). Kept as its own file
+# specifically so it can never end up inside a real
+# `helmfile --file bootstrap/helmfile.yaml apply` run.
+helmDefaults:
+  args: ["--include-crds"]
+
+releases:
+  - name: envoy-gateway
+    namespace: network
+    chart: oci://mirror.gcr.io/envoyproxy/gateway-helm
+    version: 1.9.1

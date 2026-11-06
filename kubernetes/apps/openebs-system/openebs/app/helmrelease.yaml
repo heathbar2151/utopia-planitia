@@ -1,0 +1,66 @@
+---
+# yaml-language-server: $schema=https://kubernetes-schemas.pages.dev/helm.toolkit.fluxcd.io/helmrelease_v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: openebs
+spec:
+  interval: 1h
+  chart:
+    spec:
+      chart: openebs
+      version: 4.6.2
+      sourceRef:
+        kind: HelmRepository
+        name: openebs
+        namespace: flux-system
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    cleanupOnFail: true
+    remediation:
+      strategy: rollback
+      retries: 3
+  values:
+    localpv-provisioner:
+      localpv:
+        image:
+          registry: quay.io/
+        basePath: &hostPath /var/openebs/local
+      hostpathClass:
+        enabled: true
+        name: openebs-hostpath
+        isDefaultClass: false
+        basePath: *hostPath
+      helperPod:
+        image:
+          registry: quay.io/
+    openebs-crds:
+      csi:
+        volumeSnapshots:
+          enabled: false
+          keep: false
+    zfs-localpv:
+      enabled: false
+    lvm-localpv:
+      enabled: false
+    mayastor:
+      enabled: false
+    # 4.3.0 added a bundled Loki+Minio+Alloy logging/debug stack, enabled by
+    # default (3 replicas each) - see https://github.com/openebs/openebs/issues/3981.
+    # Not needed here; if its pods fail to start they block upgrades past
+    # this chart's Helm wait timeout.
+    loki:
+      enabled: false
+    alloy:
+      enabled: false
+    engines:
+      local:
+        lvm:
+          enabled: false
+        zfs:
+          enabled: false
+      replicated:
+        mayastor:
+          enabled: false

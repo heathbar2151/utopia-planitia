@@ -1,0 +1,62 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gitea-custom-assets
+data:
+  # Gitea auto-discovers any custom/public/assets/css/theme-*.css file as
+  # a selectable theme (no THEMES setting needed unless you want to
+  # *restrict* the list to specific names - see docs.gitea.com/
+  # administration/customizing-gitea). Empty scaffold for now - fill this
+  # in with real CSS and it becomes selectable under user Settings ->
+  # Appearance immediately on the next pod restart, no HelmRelease change
+  # needed, just edit this file and commit.
+  theme-custom.css: |
+    /* Custom Gitea theme - add overrides here. */
+
+  # Theme Park (docs.theme-park.dev/themes/gitea) - native CSS import,
+  # no reverse-proxy sidecar needed. Each is a real, working theme file;
+  # more can be added the same way (see the full name list in the docs)
+  # by just adding another key here + a matching globalMounts entry in
+  # server/helmrelease.yaml. --is-dark-theme is set for the genuinely
+  # dark-palette ones per Theme Park's own docs.
+  theme-dracula.css: |
+    @import "https://theme-park.dev/css/base/gitea/dracula.css";
+    :root {
+      --is-dark-theme: true;
+    }
+
+  theme-onedark.css: |
+    @import "https://theme-park.dev/css/base/gitea/onedark.css";
+    :root {
+      --is-dark-theme: true;
+    }
+
+  theme-nord.css: |
+    @import "https://theme-park.dev/css/base/gitea/nord.css";
+    :root {
+      --is-dark-theme: true;
+    }
+
+  theme-space-gray.css: |
+    @import "https://theme-park.dev/css/base/gitea/space-gray.css";
+    :root {
+      --is-dark-theme: true;
+    }
+
+  theme-plex.css: |
+    @import "https://theme-park.dev/css/base/gitea/plex.css";
+
+  # Logo/favicon overrides intentionally not scaffolded here - mounting
+  # an empty/placeholder file at custom/public/assets/img/logo.svg or
+  # favicon.svg would immediately blank out the real logo the moment
+  # this deploys, unlike the additive theme file above. Add a
+  # `logo.svg`/`favicon.svg` key here with real SVG content (see
+  # docs.gitea.com/administration/customizing-gitea - clone Gitea's
+  # source, replace assets/logo.svg / assets/favicon.svg, run
+  # `make generate-images`) plus a matching globalMounts entry in
+  # server/helmrelease.yaml's persistence.custom-assets block
+  # (path: /data/gitea/public/assets/img/logo.svg, subPath: logo.svg -
+  # confirmed live that GITEA_CUSTOM=/data/gitea on this image, no
+  # extra "custom" path segment, see the comment on that block) when
+  # you're ready to actually replace it.

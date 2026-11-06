@@ -1,0 +1,150 @@
+---
+# yaml-language-server: $schema=https://kubernetes-schemas.pages.dev/helm.toolkit.fluxcd.io/helmrelease_v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: otel-talos
+spec:
+  interval: 30m
+  chart:
+    spec:
+      chart: opentelemetry-collector
+      version: 0.176.1
+      sourceRef:
+        kind: HelmRepository
+        name: open-telemetry
+        namespace: flux-system
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    cleanupOnFail: true
+    remediation:
+      strategy: rollback
+      retries: 3
+  values:
+    # Receives Talos's own logs, which never reach /var/log/pods: service
+    # logs (kubelet, etcd, containerd, apid, machined, ...) via
+    # machine.logging.destinations and kernel logs via KmsgLogConfig (patch:
+    # talos/patches/global/machine-logging.yaml). Host network so each node
+    # sends to 127.0.0.1; listeners bind localhost only, so nothing is
+    # exposed on the LAN and Cilium isn't in the path. Separate from
+    # otel-agent so the pod-log agent doesn't need host networking.
+    fullnameOverride: otel-talos
+    mode: daemonset
+    hostNetwork: true
+    dnsPolicy: ClusterFirstWithHostNet
+    image:
+      repository: ghcr.io/open-telemetry/opentelemetry-collector-releases/opentelemetry-collector-contrib
+    config:
+      receivers:
+        jaeger: null
+        zipkin: null
+        prometheus: null
+        otlp: null
+        # Talos json_lines: {"msg", "talos-level", "talos-service",
+        # "talos-time", ...}.
+        # on_error send_quiet keeps a record even if a step can't parse it.
+        tcplog/talos:
+          listen_address: 127.0.0.1:6050
+          operators:
+            - type: json_parser
+              parse_to: attributes
+              on_error: send_quiet
+              timestamp:
+                parse_from: attributes["talos-time"]
+                layout_type: gotime
+                layout: "2006-01-02T15:04:05.999999999Z07:00"
+              severity:
+                parse_from: attributes["talos-level"]
+            - type: move
+              if: 'attributes["talos-service"] != nil'
+              from: attributes["talos-service"]
+              to: resource["service.name"]
+            - type: move
+              if: "attributes.msg != nil"
+              from: attributes.msg
+              to: body
+            # syslogd (syslog lines containers write to Talos) carries an
+            # empty msg and the real text in `content`.
+            - type: move
+              if: "attributes.content != nil"
+              from: attributes.content
+              to: body
+        tcplog/kernel:
+          listen_address: 127.0.0.1:6051
+          operators:
+            - type: json_parser
+              parse_to: attributes
+              on_error: send_quiet
+              timestamp:
+                parse_from: attributes["talos-time"]
+                layout_type: gotime
+                layout: "2006-01-02T15:04:05.999999999Z07:00"
+              severity:
+                parse_from: attributes["talos-level"]
+            - type: move
+              if: "attributes.msg != nil"
+              from: attributes.msg
+              to: body
+      # $$ escapes Flux postBuild substitution (applied to every app
+      # Kustomization here); the collector must see the literal ${env:...}.
+      processors:
+        resource/talos:
+          attributes:
+            - { key: service.namespace, value: talos, action: upsert }
+            - { key: k8s.node.name, value: "$${env:OTEL_K8S_NODE_NAME}", action: upsert }
+        resource/kernel:
+          attributes:
+            - { key: service.name, value: kernel, action: upsert }
+            - { key: service.namespace, value: talos, action: upsert }
+            - { key: k8s.node.name, value: "$${env:OTEL_K8S_NODE_NAME}", action: upsert }
+      exporters:
+        otlphttp/loki:
+          endpoint: http://loki-headless.observability.svc.cluster.local:3100/otlp
+          tls:
+            insecure: true
+      service:
+        pipelines:
+          traces: null
+          metrics: null
+          logs: null
+          logs/talos:
+            receivers: [tcplog/talos]
+            processors: [memory_limiter, resource/talos, batch]
+            exporters: [otlphttp/loki]
+          logs/kernel:
+            receivers: [tcplog/kernel]
+            processors: [memory_limiter, resource/kernel, batch]
+            exporters: [otlphttp/loki]
+    # Host network: no container ports except self-metrics (node-IP:8888).
+    ports:
+      otlp:
+        enabled: false
+      otlp-http:
+        enabled: false
+      jaeger-compact:
+        enabled: false
+      jaeger-thrift:
+        enabled: false
+      jaeger-grpc:
+        enabled: false
+      zipkin:
+        enabled: false
+      metrics:
+        enabled: true
+    podMonitor:
+      enabled: true
+    tolerations:
+      - key: node-role.kubernetes.io/control-plane
+        operator: Exists
+        effect: NoSchedule
+      - key: node-role.kubernetes.io/master
+        operator: Exists
+        effect: NoSchedule
+    resources:
+      requests:
+        cpu: 20m
+        memory: 64Mi
+      limits:
+        memory: 256Mi

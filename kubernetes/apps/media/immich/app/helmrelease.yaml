@@ -1,0 +1,267 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/bjw-s-labs/helm-charts/main/charts/other/app-template/schemas/helmrelease-helm-v2.schema.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: immich
+spec:
+  interval: 1h
+  chartRef:
+    kind: OCIRepository
+    name: immich
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    cleanupOnFail: true
+    remediation:
+      strategy: rollback
+      retries: 3
+  dependsOn:
+    - name: intel-device-plugin-gpu
+      namespace: kube-system
+  values:
+    controllers:
+      immich:
+        annotations:
+          reloader.stakater.com/auto: "true"
+        containers:
+          app:
+            image:
+              repository: ghcr.io/immich-app/immich-server
+              tag: v3.3.1@sha256:db996e352359771c6a3db121a0ed8761516b22f727fc092a0f46dcfef82c1bc1
+            env:
+              TZ: America/New_York
+              IMMICH_PORT: &port 2283
+              # Shared postgres-vector cluster; TLS with the server cert
+              # verified against its CA (mounted from immich-db-ca).
+              DB_HOSTNAME: postgres-vector-rw.database.svc.cluster.local
+              DB_PORT: "5432"
+              DB_USERNAME: immich
+              DB_DATABASE_NAME: immich
+              DB_SSL_MODE: verify-full
+              DB_VECTOR_EXTENSION: vectorchord
+              NODE_EXTRA_CA_CERTS: /certs/ca.crt
+              # System settings (OAuth, transcoding, ...) - see immich-config
+              # in externalsecret.yaml; read-only in the admin UI.
+              IMMICH_CONFIG_FILE: /config/immich-config.yaml
+              REDIS_HOSTNAME: immich-valkey
+              REDIS_PORT: "6379"
+            envFrom:
+              - secretRef:
+                  name: immich-db
+              - secretRef:
+                  name: immich-valkey
+            probes:
+              liveness: &serverProbes
+                enabled: true
+                custom: true
+                spec:
+                  httpGet:
+                    path: /api/server/ping
+                    port: *port
+                  periodSeconds: 10
+                  timeoutSeconds: 5
+                  failureThreshold: 6
+              readiness: *serverProbes
+              startup:
+                enabled: true
+                custom: true
+                spec:
+                  httpGet:
+                    path: /api/server/ping
+                    port: *port
+                  periodSeconds: 10
+                  failureThreshold: 60
+            securityContext:
+              allowPrivilegeEscalation: false
+              capabilities: { drop: ["ALL"] }
+            resources:
+              requests:
+                cpu: 500m
+                memory: 1Gi
+              limits:
+                # QuickSync for video transcoding (enable "qsv" in Immich's
+                # video transcoding settings).
+                gpu.intel.com/i915: 1
+                memory: 4Gi
+        pod:
+          nodeSelector:
+            intel.feature.node.kubernetes.io/gpu: "true"
+      machine-learning:
+        annotations:
+          reloader.stakater.com/auto: "true"
+        containers:
+          app:
+            image:
+              repository: ghcr.io/immich-app/immich-machine-learning
+              tag: v3.3.1-openvino@sha256:9f5ea923b763435592280e2f5e051a62f1a33d6d14e87620fc15453c27a12ae0
+            env:
+              TZ: America/New_York
+              MACHINE_LEARNING_CACHE_FOLDER: /cache
+              # HuggingFace / matplotlib write to HOME; keep it on the tmpfs.
+              HOME: /tmp
+            probes:
+              liveness: &mlProbes
+                enabled: true
+                custom: true
+                spec:
+                  httpGet:
+                    path: /ping
+                    port: 3003
+                  periodSeconds: 10
+                  timeoutSeconds: 5
+                  failureThreshold: 6
+              readiness: *mlProbes
+              startup:
+                enabled: true
+                custom: true
+                spec:
+                  httpGet:
+                    path: /ping
+                    port: 3003
+                  periodSeconds: 10
+                  failureThreshold: 60
+            securityContext:
+              allowPrivilegeEscalation: false
+              capabilities: { drop: ["ALL"] }
+            resources:
+              requests:
+                cpu: 500m
+                memory: 2Gi
+              limits:
+                # GPU for OpenVINO inference.
+                gpu.intel.com/i915: 1
+                memory: 8Gi
+        pod:
+          nodeSelector:
+            intel.feature.node.kubernetes.io/gpu: "true"
+      valkey:
+        containers:
+          app:
+            image:
+              repository: docker.io/valkey/valkey
+              tag: 9.1.2-alpine@sha256:48332870af354a799964c0012ae1194a0bf2bf894eb508f945810596dc2d8d11
+            # Job queue only (BullMQ) - nothing worth persisting.
+            args:
+              - --requirepass
+              - $$(REDIS_PASSWORD)
+              - --save
+              - ""
+              - --appendonly
+              - "no"
+            envFrom:
+              - secretRef:
+                  name: immich-valkey
+            probes:
+              liveness: &valkeyProbes
+                enabled: true
+                custom: true
+                spec:
+                  tcpSocket:
+                    port: 6379
+                  periodSeconds: 10
+              readiness: *valkeyProbes
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities: { drop: ["ALL"] }
+            resources:
+              requests:
+                cpu: 20m
+                memory: 64Mi
+              limits:
+                memory: 512Mi
+        pod:
+          securityContext:
+            runAsUser: 999
+            runAsGroup: 999
+            fsGroup: 999
+    defaultPodOptions:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 568
+        runAsGroup: 568
+        fsGroup: 568
+        fsGroupChangePolicy: OnRootMismatch
+        supplementalGroups: [44]
+        seccompProfile: { type: RuntimeDefault }
+    service:
+      app:
+        controller: immich
+        primary: true
+        ports:
+          http:
+            port: *port
+      # Named so Immich's default ML URL (http://immich-machine-learning:3003)
+      # works without configuration.
+      machine-learning:
+        controller: machine-learning
+        ports:
+          http:
+            port: 3003
+      valkey:
+        controller: valkey
+        ports:
+          redis:
+            port: 6379
+    route:
+      app:
+        annotations:
+          gatus.home-operations.com/endpoint: |-
+            path: /api/server/ping
+        hostnames: ["${SECRET_HOST_IMMICH}.${SECRET_DOMAIN}"]
+        parentRefs:
+          - name: envoy-internal
+            namespace: network
+        rules:
+          - backendRefs:
+              - identifier: app
+                port: *port
+    persistence:
+      # Photo/video library + thumbnails + encoded video.
+      library:
+        type: nfs
+        server: ${SECRET_NAS_HOST}
+        path: ${SECRET_NAS_IMMICH_PATH}
+        advancedMounts:
+          immich:
+            app:
+              - path: /data
+      db-ca:
+        type: secret
+        name: immich-db-ca
+        advancedMounts:
+          immich:
+            app:
+              - path: /certs
+                readOnly: true
+      config:
+        type: secret
+        name: immich-config
+        advancedMounts:
+          immich:
+            app:
+              - path: /config
+                readOnly: true
+      ml-cache:
+        existingClaim: immich-ml-cache
+        advancedMounts:
+          machine-learning:
+            app:
+              - path: /cache
+      tmpfs:
+        type: emptyDir
+        advancedMounts:
+          immich:
+            app:
+              - path: /tmp
+                subPath: server-tmp
+          machine-learning:
+            app:
+              - path: /tmp
+                subPath: ml-tmp
+          valkey:
+            app:
+              - path: /data
+                subPath: valkey

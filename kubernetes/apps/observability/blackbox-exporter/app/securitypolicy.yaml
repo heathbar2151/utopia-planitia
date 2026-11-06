@@ -1,0 +1,25 @@
+---
+# yaml-language-server: $schema=https://k8s-schemas.home-operations.com/gateway.envoyproxy.io/securitypolicy_v1alpha1.json
+# Authentik login in front of the Blackbox Exporter web UI.
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: SecurityPolicy
+metadata:
+  name: blackbox-exporter-oidc
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: blackbox-exporter
+  oidc:
+    provider:
+      issuer: https://${SECRET_HOST_AUTHENTIK}.${SECRET_DOMAIN}/application/o/blackbox-exporter/
+    clientIDRef:
+      group: ""
+      kind: Secret
+      name: blackbox-exporter-oidc
+    clientSecret:
+      group: ""
+      kind: Secret
+      name: blackbox-exporter-oidc
+    redirectURL: https://blackbox-exporter.${SECRET_DOMAIN}/oauth2/callback
+    scopes: ["openid", "email", "profile"]

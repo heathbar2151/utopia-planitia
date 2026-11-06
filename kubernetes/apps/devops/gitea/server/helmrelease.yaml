@@ -1,0 +1,168 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/bjw-s-labs/helm-charts/main/charts/other/app-template/schemas/helmrelease-helm-v2.schema.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: &app gitea-server
+spec:
+  interval: 30m
+  chartRef:
+    kind: OCIRepository
+    name: gitea-server
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    cleanupOnFail: true
+    remediation:
+      strategy: rollback
+      retries: 3
+  values:
+    controllers:
+      gitea-server:
+        annotations:
+          reloader.stakater.com/auto: "true"
+        initContainers:
+          init-db:
+            image:
+              repository: ghcr.io/home-operations/postgres-init
+              tag: 18
+            env:
+              INIT_POSTGRES_DBNAME: gitea
+              INIT_POSTGRES_HOST: postgres16-rw.database.svc.cluster.local
+            envFrom:
+              - secretRef:
+                  name: gitea-init-db
+            # Same non-numeric "nobody" image-user gotcha as authentik's own
+            # use of this image - kubelet can't statically verify
+            # runAsNonRoot without an explicit numeric UID.
+            securityContext:
+              runAsUser: 1000
+              runAsGroup: 1000
+        containers:
+          app:
+            image:
+              repository: docker.gitea.com/gitea
+              tag: "28.2.0"
+            # Credentials and signing keys come from gitea-credentials
+            # (app/externalsecret.yaml); everything here is plain config.
+            env:
+              GITEA__database__DB_TYPE: postgres
+              GITEA__database__HOST: postgres16-rw.database.svc.cluster.local:5432
+              GITEA__database__NAME: gitea
+              GITEA__server__DOMAIN: ${SECRET_HOST_GITEA}.${SECRET_DOMAIN}
+              GITEA__server__ROOT_URL: https://${SECRET_HOST_GITEA}.${SECRET_DOMAIN}/
+              # SSH is served by its own LoadBalancer Service (service.ssh
+              # below), so it needs a hostname separate from the web UI.
+              GITEA__server__SSH_DOMAIN: ${SECRET_HOST_GITEA_SSH}.${SECRET_DOMAIN}
+              GITEA__server__SSH_PORT: "22"
+              # Queue, cache and sessions use the shared Dragonfly instance,
+              # one logical DB each.
+              GITEA__queue__TYPE: redis
+              GITEA__queue__CONN_STR: redis://dragonfly.database.svc.cluster.local:6379/0
+              GITEA__cache__ADAPTER: redis
+              GITEA__cache__HOST: redis://dragonfly.database.svc.cluster.local:6379/1
+              GITEA__session__PROVIDER: redis
+              GITEA__session__PROVIDER_CONFIG: redis://dragonfly.database.svc.cluster.local:6379/2
+              GITEA__actions__ENABLED: "true"
+            envFrom:
+              - secretRef:
+                  name: gitea-credentials
+            probes:
+              liveness:
+                enabled: true
+                custom: true
+                spec:
+                  httpGet:
+                    path: /api/healthz
+                    port: 3000
+                  initialDelaySeconds: 30
+                  periodSeconds: 30
+                  failureThreshold: 3
+              readiness:
+                enabled: true
+                custom: true
+                spec:
+                  httpGet:
+                    path: /api/healthz
+                    port: 3000
+                  initialDelaySeconds: 15
+                  periodSeconds: 15
+            resources:
+              requests:
+                cpu: 100m
+                memory: 256Mi
+              limits:
+                memory: 1Gi
+    defaultPodOptions:
+      securityContext:
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+    service:
+      app:
+        controller: *app
+        ports:
+          http:
+            port: 3000
+      # SSH is raw TCP, not HTTP, so it doesn't go through Envoy Gateway
+      # like the web UI does - it gets its own LoadBalancer IP from the
+      # shared pool (kubernetes/apps/kube-system/cilium/config/pool.yaml).
+      # A separate hostname from the web UI is required, not just tidier - a
+      # single hostname can't point at two different IPs for two
+      # different protocols.
+      ssh:
+        controller: *app
+        type: LoadBalancer
+        annotations:
+          lbipam.cilium.io/ips: "${SECRET_LB_GITEA_IP}"
+          external-dns.alpha.kubernetes.io/hostname: ${SECRET_HOST_GITEA_SSH}.${SECRET_DOMAIN}
+        ports:
+          ssh:
+            port: 22
+    route:
+      internal:
+        hostnames: ["${SECRET_HOST_GITEA}.${SECRET_DOMAIN}"]
+        parentRefs:
+          - name: envoy-internal
+            namespace: network
+        rules:
+          - backendRefs:
+              - identifier: app
+                port: 3000
+    persistence:
+      data:
+        existingClaim: gitea
+        globalMounts:
+          - path: /data
+      # Scaffold for GitOps-tracked custom overrides (logo, theme CSS,
+      # template overrides) instead of dropping files directly into the
+      # gitea-data PVC via kubectl exec - see app/configmap-custom-
+      # assets.yaml for what's actually in here and how to extend it.
+      # Path note (confirmed live via `kubectl exec ... env | grep
+      # GITEA_CUSTOM`, don't trust the generic bare-metal install docs
+      # here): this image sets GITEA_CUSTOM=/data/gitea directly, NOT
+      # /data/gitea/custom like Gitea's own generic docs assume for a
+      # standard WORK_PATH/custom split - so overrides mount straight
+      # under /data/gitea/public/..., no extra "custom" path segment.
+      custom-assets:
+        type: configMap
+        name: gitea-custom-assets
+        globalMounts:
+          - path: /data/gitea/public/assets/css/theme-custom.css
+            subPath: theme-custom.css
+            readOnly: true
+          - path: /data/gitea/public/assets/css/theme-dracula.css
+            subPath: theme-dracula.css
+            readOnly: true
+          - path: /data/gitea/public/assets/css/theme-onedark.css
+            subPath: theme-onedark.css
+            readOnly: true
+          - path: /data/gitea/public/assets/css/theme-nord.css
+            subPath: theme-nord.css
+            readOnly: true
+          - path: /data/gitea/public/assets/css/theme-space-gray.css
+            subPath: theme-space-gray.css
+            readOnly: true
+          - path: /data/gitea/public/assets/css/theme-plex.css
+            subPath: theme-plex.css
+            readOnly: true

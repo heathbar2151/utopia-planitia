@@ -1,0 +1,70 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/bjw-s-labs/helm-charts/main/charts/other/app-template/schemas/helmrelease-helm-v2.schema.json
+# Every 5 minutes, copies the README badge JSON (gatus status, kromgo
+# cluster stats) from in-cluster services to a GitHub gist, so the public
+# README can show the badges without naming the cluster's domain.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: badge-publisher
+spec:
+  interval: 1h
+  chartRef:
+    kind: OCIRepository
+    name: badge-publisher
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    cleanupOnFail: true
+    remediation:
+      strategy: rollback
+      retries: 3
+  values:
+    controllers:
+      badge-publisher:
+        type: cronjob
+        cronjob:
+          schedule: "*/5 * * * *"
+          concurrencyPolicy: Forbid
+          successfulJobsHistory: 1
+          failedJobsHistory: 2
+          # Retry so a brief upstream DNS or network blip doesn't fail the run.
+          backoffLimit: 2
+          ttlSecondsAfterFinished: 3600
+        pod:
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534
+            runAsGroup: 65534
+            seccompProfile:
+              type: RuntimeDefault
+        containers:
+          app:
+            image:
+              repository: docker.io/library/python
+              tag: 3.13.9-alpine3.22@sha256:e5fa639e49b85986c4481e28faa2564b45aa8021413f31026c3856e5911618b1
+            command: ["python3", "/app/publish.py"]
+            envFrom:
+              - secretRef:
+                  name: badge-publisher
+            env:
+              PYTHONDONTWRITEBYTECODE: "1"
+            resources:
+              requests:
+                cpu: 10m
+                memory: 32Mi
+              limits:
+                memory: 64Mi
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities:
+                drop: ["ALL"]
+    persistence:
+      script:
+        type: configMap
+        name: badge-publisher-script
+        globalMounts:
+          - path: /app
+            readOnly: true

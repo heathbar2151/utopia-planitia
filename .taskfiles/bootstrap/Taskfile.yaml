@@ -1,0 +1,32 @@
+---
+# yaml-language-server: $schema=https://taskfile.dev/schema.json
+version: '3'
+
+tasks:
+
+  talos:
+    desc: Bootstrap the Talos cluster
+    dir: '{{.TALOS_DIR}}'
+    cmds:
+      # Generates and SOPS-encrypts the secrets bundle only if it is missing;
+      # topf also prints it, so discard stdout.
+      - '[ -f talsecret.sops.yaml ] || topf secrets --confirm=false > /dev/null'
+      - topf apply --auto-bootstrap --confirm=false
+      - task: :talos:client-config
+      - until talosctl --nodes "$(sops -d topf.yaml | yq '[.nodes[] | select(.role == "control-plane")][0].ip')" kubeconfig {{.ROOT_DIR}} --force; do sleep 10; done
+    preconditions:
+      - test -f {{.ROOT_DIR}}/.sops.yaml
+      - test -f {{.SOPS_AGE_KEY_FILE}}
+      - test -f {{.TALOS_DIR}}/topf.yaml
+      - which topf talosctl sops yq
+
+  apps:
+    desc: Bootstrap apps into the Talos cluster
+    cmd: bash {{.SCRIPTS_DIR}}/bootstrap-apps.sh
+    preconditions:
+      - msg: Unsupported bash version, run `brew install bash` to upgrade
+        sh: '{{if eq OS "darwin"}}test -f /opt/homebrew/bin/bash{{end}}'
+      - test -f {{.KUBECONFIG}}
+      - test -f {{.ROOT_DIR}}/.sops.yaml
+      - test -f {{.SCRIPTS_DIR}}/bootstrap-apps.sh
+      - test -f {{.SOPS_AGE_KEY_FILE}}

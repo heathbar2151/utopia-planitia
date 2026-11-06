@@ -1,0 +1,18 @@
+---
+# yaml-language-server: $schema=https://kubernetes-schemas.pages.dev/source.toolkit.fluxcd.io/ocirepository_v1beta2.json
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: OCIRepository
+metadata:
+  name: external-dns
+spec:
+  interval: 1h
+  layerSelector:
+    mediaType: application/vnd.cncf.helm.chart.content.v1.tar+gzip
+    operation: copy
+  ref:
+    # Must stay >= 1.22.0 (appVersion 0.22.0) - earlier versions still use
+    # the external-dns.alpha.kubernetes.io/ prefix for the Gateway target
+    # annotation, not external-dns.kubernetes.io/, so a downgrade below
+    # this silently breaks DNS publishing for any Gateway API-sourced app.
+    tag: 1.23.0
+  url: oci://ghcr.io/home-operations/charts-mirror/external-dns

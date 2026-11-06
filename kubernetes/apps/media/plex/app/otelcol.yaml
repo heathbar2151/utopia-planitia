@@ -1,0 +1,41 @@
+---
+# Plex writes its logs to files (not stdout), so the node log agent can't
+# see them. This sidecar tails them and ships to Loki over OTLP, labelled
+# like everything else (service_name="plex", k8s_namespace_name="media").
+extensions:
+  # File offsets live in the pod's emptyDir: a sidecar restart resumes
+  # instead of re-sending. The logs themselves are pod-lifetime (same
+  # emptyDir), so start_at: beginning loses nothing on a pod restart.
+  file_storage:
+    directory: /var/lib/otelcol
+receivers:
+  filelog:
+    include:
+      - /var/log/plex/**/*.log
+    start_at: beginning
+    storage: file_storage
+processors:
+  memory_limiter:
+    check_interval: 5s
+    limit_mib: 100
+  resource:
+    attributes:
+      - { key: service.name, value: plex, action: upsert }
+      - { key: k8s.namespace.name, value: media, action: upsert }
+      - { key: k8s.pod.name, value: "${env:POD_NAME}", action: upsert }
+  batch: {}
+exporters:
+  otlphttp/loki:
+    endpoint: http://loki-headless.observability.svc.cluster.local:3100/otlp
+    tls:
+      insecure: true
+service:
+  extensions: [file_storage]
+  telemetry:
+    metrics:
+      level: none
+  pipelines:
+    logs:
+      receivers: [filelog]
+      processors: [memory_limiter, resource, batch]
+      exporters: [otlphttp/loki]

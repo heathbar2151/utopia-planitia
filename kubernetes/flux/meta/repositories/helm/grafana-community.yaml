@@ -1,0 +1,15 @@
+---
+# yaml-language-server: $schema=https://kubernetes-schemas.pages.dev/source.toolkit.fluxcd.io/helmrepository_v1.json
+# Community-maintained Grafana charts (grafana, tempo, loki, ...) moved here
+# from grafana.github.io/helm-charts, which is now Grafana Enterprise only for
+# Loki (from 7.0) and deprecated for the rest. The 12h interval means a freshly
+# published chart can lag; `flux reconcile source helm grafana-community`
+# refreshes the index if a HelmChart says a new version isn't found.
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: grafana-community
+  namespace: flux-system
+spec:
+  interval: 12h
+  url: https://grafana-community.github.io/helm-charts

@@ -1,0 +1,127 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/bjw-s-labs/helm-charts/main/charts/other/app-template/schemas/helmrelease-helm-v2.schema.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: &app authentik-worker
+spec:
+  interval: 30m
+  chartRef:
+    kind: OCIRepository
+    name: authentik-worker
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    cleanupOnFail: true
+    remediation:
+      strategy: rollback
+      retries: 3
+  values:
+    controllers:
+      authentik-worker:
+        # Two replicas on different nodes, so one node going down doesn't
+        # take Authentik with it. ScheduleAnyway: with a node out, co-locate
+        # rather than leave a pod Pending. pod-template-hash scopes the skew
+        # to the current ReplicaSet so a rollout re-spreads.
+        replicas: 2
+        strategy: RollingUpdate
+        pod:
+          topologySpreadConstraints:
+            - maxSkew: 1
+              topologyKey: kubernetes.io/hostname
+              whenUnsatisfiable: ScheduleAnyway
+              labelSelector:
+                matchLabels:
+                  app.kubernetes.io/controller: authentik-worker
+              matchLabelKeys:
+                - pod-template-hash
+        annotations:
+          reloader.stakater.com/auto: "true"
+        initContainers:
+          init-db:
+            image:
+              repository: ghcr.io/home-operations/postgres-init
+              tag: 18
+            envFrom:
+              - secretRef:
+                  name: authentik-init-db
+            # postgres-init's image USER is the non-numeric "nobody" - kubelet
+            # can't statically verify runAsNonRoot without an explicit numeric
+            # UID. Matches the working staying-fit pattern for this same image.
+            securityContext:
+              runAsUser: 1000
+              runAsGroup: 1000
+        containers:
+          app:
+            image:
+              repository: ghcr.io/goauthentik/server
+              tag: 2026.8@sha256:602227a86455d6772e3d16b7d852713c4f864f40df5df894abd1285bb53979a5
+            # k8s `command` replaces the image's ENTRYPOINT entirely (unlike
+            # Compose's `command`, which only overrides CMD and keeps
+            # ENTRYPOINT) - the image's own entrypoint script is what actually
+            # dispatches on "server"/"worker", so it has to stay in place and
+            # receive this as an arg instead.
+            args: ["worker"]
+            envFrom:
+              - secretRef:
+                  name: authentik-credentials
+            # Same check as the upstream chart. Readiness gates rolling
+            # updates; liveness restarts a stuck worker.
+            probes:
+              liveness:
+                enabled: true
+                custom: true
+                spec:
+                  exec:
+                    command: ["ak", "healthcheck"]
+                  initialDelaySeconds: 30
+                  periodSeconds: 30
+                  timeoutSeconds: 20
+                  failureThreshold: 3
+              readiness:
+                enabled: true
+                custom: true
+                spec:
+                  exec:
+                    command: ["ak", "healthcheck"]
+                  initialDelaySeconds: 30
+                  periodSeconds: 15
+                  timeoutSeconds: 20
+            securityContext:
+              allowPrivilegeEscalation: false
+              capabilities: { drop: ["ALL"] }
+            resources:
+              requests:
+                cpu: 100m
+                memory: 512Mi
+              limits:
+                memory: 1Gi
+    defaultPodOptions:
+      securityContext:
+        runAsNonRoot: true
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile: { type: RuntimeDefault }
+    persistence:
+      media:
+        # Shared with authentik-server. CephFS (RWX) via the volsync
+        # component, so no affinity is needed to co-locate server and worker.
+        existingClaim: authentik
+        globalMounts:
+          # See the matching comment in server/helmrelease.yaml - /media is
+          # the legacy mount path, current authentik expects /data.
+          - path: /data
+      custom-blueprints:
+        type: configMap
+        name: authentik-custom-blueprints
+        globalMounts:
+          # /blueprints/custom is the community-standard path for
+          # user-supplied blueprints - distinct from authentik's own
+          # reserved /blueprints/{default,example,system} subdirectories it
+          # seeds itself. Only mounted into the worker, not server - the
+          # worker is the process that runs blueprint discovery/apply (both
+          # the continuous filesystem watch and the 60-minute periodic
+          # re-apply), per authentik's own docs.
+          - path: /blueprints/custom
+            readOnly: true

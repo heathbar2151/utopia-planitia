@@ -1,0 +1,8 @@
+# Default owner for everything in the repo
+* @heathbar2151
+
+# Sensitive paths, listed explicitly so they stay owned even if the default changes
+/.github/ @heathbar2151
+/kubernetes/flux/ @heathbar2151
+/talos/ @heathbar2151
+/.sops.yaml @heathbar2151

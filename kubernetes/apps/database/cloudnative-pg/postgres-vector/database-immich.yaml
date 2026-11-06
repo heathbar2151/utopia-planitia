@@ -1,0 +1,24 @@
+---
+# yaml-language-server: $schema=https://kubernetes-schemas.pages.dev/postgresql.cnpg.io/database_v1.json
+# Immich's database, owned by the non-superuser immich role. The operator
+# creates the extensions Immich needs (dependencies first: vector before
+# vchord, cube before earthdistance). After a VectorChord upgrade, Immich's
+# docs call for ALTER EXTENSION vchord UPDATE + REINDEX face_index/clip_index.
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: postgres-vector-immich
+spec:
+  name: immich
+  owner: immich
+  cluster:
+    name: postgres-vector
+  extensions:
+    - name: vector
+      ensure: present
+    - name: vchord
+      ensure: present
+    - name: cube
+      ensure: present
+    - name: earthdistance
+      ensure: present

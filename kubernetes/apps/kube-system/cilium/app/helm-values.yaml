@@ -1,0 +1,101 @@
+---
+autoDirectNodeRoutes: true
+bpf:
+  masquerade: true
+  # Ref: https://github.com/siderolabs/talos/issues/10002
+  hostLegacyRouting: true
+cni:
+  # Required for pairing with Multus CNI
+  exclusive: false
+cgroup:
+  automount:
+    enabled: false
+  hostRoot: /sys/fs/cgroup
+endpointRoutes:
+  enabled: true
+envoy:
+  enabled: false
+dashboards:
+  enabled: true
+# Hubble at L3/L4 only: flow records come from the existing eBPF datapath,
+# off the packet path, so no added latency. Nothing here enables L7
+# visibility (that would route traffic through Envoy, which is disabled).
+# Needed to observe real flows before writing network policies and to see
+# drops after (hubble observe --verdict DROPPED). Drop and policy metrics
+# stay at namespace level to bound Prometheus cardinality. The flow metric
+# records workloads (namespace/workload), so policy work can see which
+# workload talks to which from Prometheus history instead of a live
+# capture; a series exists only for pairs that actually talk. Pods with no
+# workload owner (operator-managed, like CNPG's Postgres pods) fall back to
+# namespace/pod, or their flows would have an empty label.
+hubble:
+  enabled: true
+  metrics:
+    enabled:
+      - drop:sourceContext=namespace;destinationContext=namespace
+      - policy:sourceContext=namespace;destinationContext=namespace
+      - flow:sourceContext=workload|reserved-identity|pod;destinationContext=workload|reserved-identity|pod
+      - tcp
+      - icmp
+      - port-distribution
+    enableOpenMetrics: true
+    serviceMonitor:
+      enabled: true
+    dashboards:
+      enabled: true
+  relay:
+    enabled: true
+    rollOutPods: true
+  ui:
+    enabled: false
+ipam:
+  mode: kubernetes
+ipv4NativeRoutingCIDR: "${SECRET_POD_CIDR}"
+k8sServiceHost: 127.0.0.1
+k8sServicePort: 7445
+kubeProxyReplacement: true
+kubeProxyReplacementHealthzBindAddr: 0.0.0.0:10256
+l2announcements:
+  enabled: true
+loadBalancer:
+  algorithm: maglev
+  mode: "dsr"
+localRedirectPolicy: true
+operator:
+  dashboards:
+    enabled: true
+  prometheus:
+    enabled: true
+    serviceMonitor:
+      enabled: true
+  replicas: 1
+  rollOutPods: true
+prometheus:
+  enabled: true
+  serviceMonitor:
+    enabled: true
+    trustCRDsExist: true
+rollOutCiliumPods: true
+routingMode: native
+securityContext:
+  capabilities:
+    ciliumAgent:
+      - CHOWN
+      - KILL
+      - NET_ADMIN
+      - NET_RAW
+      - IPC_LOCK
+      - SYS_ADMIN
+      - SYS_RESOURCE
+      - PERFMON
+      - BPF
+      - DAC_OVERRIDE
+      - FOWNER
+      - SETGID
+      - SETUID
+    cleanCiliumState:
+      - NET_ADMIN
+      - SYS_ADMIN
+      - SYS_RESOURCE
+socketLB:
+  hostNamespaceOnly: true

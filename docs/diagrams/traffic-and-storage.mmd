@@ -1,0 +1,57 @@
+flowchart LR
+  internet(["Internet"])
+  lan(["LAN clients"])
+
+  subgraph cf["Cloudflare"]
+    direction TB
+    tunnel["Cloudflare Tunnel"]
+    dns["public DNS"]
+  end
+
+  subgraph cluster["Kubernetes on Talos"]
+    direction TB
+    cloudflared["cloudflared"]
+    k8sgw["k8s-gateway<br/>internal DNS"]
+    ext["envoy-external"]
+    int["envoy-internal<br/>Cilium LB IP"]
+    authentik["Authentik<br/>OIDC"]
+    apps["apps"]
+    extdns["external-dns"]
+    ceph["Rook-Ceph<br/>block storage on the nodes"]
+    volsync["volsync"]
+    cnpg["CloudNativePG"]
+    minio["MinIO"]
+  end
+
+  subgraph nas["NAS"]
+    shares[("NFS / SMB shares<br/>media, backups")]
+  end
+
+  internet --> tunnel
+  tunnel -- "outbound-only tunnel,<br/>no open ports" --> cloudflared
+  cloudflared --> ext
+  lan -- "DNS" --> k8sgw
+  lan --> int
+  lan -. "direct LoadBalancer IPs<br/>MQTT, Plex, Frigate, SSH" .-> apps
+  ext --> apps
+  int --> apps
+  apps -. "SSO" .-> authentik
+  extdns -- "records" --> dns
+  apps -- "PVCs" --> ceph
+  ceph -- "snapshots" --> volsync
+  volsync -- "restic over NFS" --> shares
+  cnpg -- "WAL and base backups" --> minio
+  minio -- "data on" --> shares
+  apps -- "media over NFS" --> shares
+
+  classDef extNode fill:#3b1f4a,stroke:#c084fc,color:#e5e7eb
+  classDef clusterNode fill:#1e3a5f,stroke:#60a5fa,color:#e5e7eb
+  classDef nasNode fill:#4a2c12,stroke:#f59e0b,color:#e5e7eb
+  classDef personNode fill:#14532d,stroke:#4ade80,color:#e5e7eb
+  class tunnel,dns extNode
+  class cloudflared,k8sgw,ext,int,authentik,apps,extdns,ceph,volsync,cnpg,minio clusterNode
+  class shares nasNode
+  class internet,lan personNode
+  style cf fill:#1f1027,stroke:#c084fc,color:#d8b4fe
+  style cluster fill:#0f1d2e,stroke:#60a5fa,color:#93c5fd
+  style nas fill:#2a1a0b,stroke:#f59e0b,color:#fcd34d

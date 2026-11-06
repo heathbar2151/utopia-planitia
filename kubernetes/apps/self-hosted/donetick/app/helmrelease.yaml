@@ -1,0 +1,117 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/bjw-s-labs/helm-charts/main/charts/other/app-template/schemas/helmrelease-helm-v2.schema.json
+# Donetick: chores and tasks. Single Go binary with the web UI
+# embedded; config from the donetick-config ConfigMap plus DT_* secrets.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: donetick
+spec:
+  interval: 1h
+  chartRef:
+    kind: OCIRepository
+    name: donetick
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    cleanupOnFail: true
+    remediation:
+      strategy: rollback
+      retries: 3
+  values:
+    controllers:
+      donetick:
+        # SQLite on an RWO volume: one instance only.
+        strategy: Recreate
+        annotations:
+          reloader.stakater.com/auto: "true"
+        containers:
+          app:
+            image:
+              repository: docker.io/donetick/donetick
+              tag: v0.1.83@sha256:a4f41fc67942eeec1016ab1025f98382ff9179c1d366d2f7856d99073c98582e
+            env:
+              TZ: America/New_York
+              DT_ENV: selfhosted
+              DT_SQLITE_PATH: /data/donetick.db
+            envFrom:
+              - secretRef:
+                  name: donetick
+            probes:
+              liveness: &probes
+                enabled: true
+                custom: true
+                spec:
+                  httpGet:
+                    path: /api/v1/health
+                    port: &port 2021
+                  periodSeconds: 10
+                  timeoutSeconds: 3
+                  failureThreshold: 3
+              readiness: *probes
+              startup:
+                enabled: true
+                custom: true
+                spec:
+                  httpGet:
+                    path: /api/v1/health
+                    port: *port
+                  periodSeconds: 5
+                  failureThreshold: 30
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities: { drop: ["ALL"] }
+            resources:
+              requests:
+                cpu: 10m
+                memory: 64Mi
+              limits:
+                memory: 512Mi
+        pod:
+          securityContext:
+            runAsUser: 1000
+            runAsGroup: 1000
+            runAsNonRoot: true
+            fsGroup: 1000
+            fsGroupChangePolicy: OnRootMismatch
+            seccompProfile: { type: RuntimeDefault }
+    service:
+      app:
+        controller: donetick
+        ports:
+          http:
+            port: *port
+    route:
+      app:
+        annotations:
+          gatus.home-operations.com/endpoint: |-
+            path: /api/v1/health
+        hostnames: ["${SECRET_HOST_DONETICK}.${SECRET_DOMAIN}"]
+        parentRefs:
+          - name: envoy-internal
+            namespace: network
+        rules:
+          - backendRefs:
+              - identifier: app
+                port: *port
+    persistence:
+      # SQLite database and uploads; backed up by volsync (claim created by
+      # the volsync component).
+      data:
+        existingClaim: donetick
+        globalMounts:
+          - path: /data
+      config:
+        type: configMap
+        name: donetick-config
+        globalMounts:
+          # Working dir is /, and Donetick reads ./config/<DT_ENV>.yaml.
+          - path: /config/selfhosted.yaml
+            subPath: selfhosted.yaml
+            readOnly: true
+      tmp:
+        type: emptyDir
+        globalMounts:
+          - path: /tmp

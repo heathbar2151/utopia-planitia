@@ -1,0 +1,25 @@
+---
+# yaml-language-server: $schema=https://k8s-schemas.home-operations.com/gateway.envoyproxy.io/securitypolicy_v1alpha1.json
+# Authentik login in front of the Ceph Dashboard web UI.
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: SecurityPolicy
+metadata:
+  name: rook-ceph-oidc
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: rook-ceph-dashboard
+  oidc:
+    provider:
+      issuer: https://${SECRET_HOST_AUTHENTIK}.${SECRET_DOMAIN}/application/o/rook-ceph/
+    clientIDRef:
+      group: ""
+      kind: Secret
+      name: rook-ceph-oidc
+    clientSecret:
+      group: ""
+      kind: Secret
+      name: rook-ceph-oidc
+    redirectURL: https://rook.${SECRET_DOMAIN}/oauth2/callback
+    scopes: ["openid", "email", "profile"]

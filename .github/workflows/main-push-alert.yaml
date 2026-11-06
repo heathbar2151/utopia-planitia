@@ -1,0 +1,42 @@
+---
+# yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
+name: "Main Push Alert"
+
+on:
+  push:
+    branches: ["main"]
+
+permissions:
+  issues: write
+
+jobs:
+  alert:
+    name: Alert on Agent Push to Main
+    # Must stay GitHub-hosted so this alert can't depend on anything running
+    # in the cluster. The hosted image also ships the gh CLI.
+    runs-on: ubuntu-latest
+    # AGENT_ACTOR_PREFIX is a repository Actions variable naming the agent
+    # accounts. The job is skipped while it's unset.
+    if: ${{ vars.AGENT_ACTOR_PREFIX != '' && startsWith(github.actor, vars.AGENT_ACTOR_PREFIX) }}
+    steps:
+      - name: Open Issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          ACTOR: ${{ github.actor }}
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.event.after }}
+          COMPARE_URL: ${{ github.event.compare }}
+        run: |
+          body=$(cat <<BODY
+          An agent account pushed directly to \`main\` instead of going through a PR.
+
+          - **Actor:** \`${ACTOR}\`
+          - **Commit range:** \`${BEFORE}..${AFTER}\`
+          - **Compare:** ${COMPARE_URL}
+          BODY
+          )
+          gh issue create \
+            --title "Agent pushed directly to main" \
+            --assignee heathbar2151 \
+            --body "$body"

@@ -1,0 +1,5 @@
+# Remove Talos's default PodSecurity admission plugin configuration.
+apiVersion: v1alpha1
+kind: KubeAdmissionControlConfig
+name: PodSecurity
+$patch: delete

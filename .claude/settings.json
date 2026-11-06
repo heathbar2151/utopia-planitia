@@ -1,0 +1,24 @@
+{
+  "permissions": {
+    "deny": [
+      "Read(age.key)",
+      "Read(cloudflare-tunnel.json)",
+      "Read(github-deploy.key)",
+      "Read(github-deploy.key.pub)",
+      "Read(github-push-token.txt)",
+      "Read(kubeconfig)"
+    ]
+  },
+  "sandbox": {
+    "filesystem": {
+      "denyRead": [
+        "age.key",
+        "cloudflare-tunnel.json",
+        "github-deploy.key",
+        "github-deploy.key.pub",
+        "github-push-token.txt",
+        "kubeconfig"
+      ]
+    }
+  }
+}

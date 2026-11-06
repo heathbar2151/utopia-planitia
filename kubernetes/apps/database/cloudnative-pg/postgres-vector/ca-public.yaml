@@ -1,0 +1,123 @@
+---
+# Lets client apps verify postgres-vector's server certificate
+# (sslmode=verify-full) without ever exposing the CA private key.
+#
+# 1. A namespaced store in `database` copies ONLY ca.crt from CNPG's
+#    postgres-vector-ca (which also holds ca.key) into
+#    postgres-vector-ca-public.
+# 2. The postgres-vector-ca ClusterSecretStore can read ONLY that public
+#    copy, so any app namespace can pull the CA cert and nothing else.
+#
+# CNPG rotates its CA automatically; the copies refresh hourly and Reloader
+# restarts consumers when their copy changes.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: postgres-vector-ca-copier
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: postgres-vector-ca-copier
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: ["postgres-vector-ca"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: postgres-vector-ca-copier
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: postgres-vector-ca-copier
+subjects:
+  - kind: ServiceAccount
+    name: postgres-vector-ca-copier
+    namespace: database
+---
+# yaml-language-server: $schema=https://kubernetes-schemas.pages.dev/external-secrets.io/secretstore_v1.json
+apiVersion: external-secrets.io/v1
+kind: SecretStore
+metadata:
+  name: postgres-vector-ca-copier
+spec:
+  provider:
+    kubernetes:
+      remoteNamespace: database
+      server:
+        caProvider:
+          type: ConfigMap
+          name: kube-root-ca.crt
+          key: ca.crt
+      auth:
+        serviceAccount:
+          name: postgres-vector-ca-copier
+---
+# yaml-language-server: $schema=https://kubernetes-schemas.pages.dev/external-secrets.io/externalsecret_v1.json
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: postgres-vector-ca-public
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    kind: SecretStore
+    name: postgres-vector-ca-copier
+  target:
+    name: postgres-vector-ca-public
+  data:
+    - secretKey: ca.crt
+      remoteRef:
+        key: postgres-vector-ca
+        property: ca.crt
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: postgres-vector-ca-public-reader
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: postgres-vector-ca-public-reader
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: ["postgres-vector-ca-public"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: postgres-vector-ca-public-reader
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: postgres-vector-ca-public-reader
+subjects:
+  - kind: ServiceAccount
+    name: postgres-vector-ca-public-reader
+    namespace: database
+---
+# yaml-language-server: $schema=https://kubernetes-schemas.pages.dev/external-secrets.io/clustersecretstore_v1.json
+apiVersion: external-secrets.io/v1
+kind: ClusterSecretStore
+metadata:
+  name: postgres-vector-ca
+spec:
+  provider:
+    kubernetes:
+      remoteNamespace: database
+      server:
+        caProvider:
+          type: ConfigMap
+          name: kube-root-ca.crt
+          key: ca.crt
+          namespace: database
+      auth:
+        serviceAccount:
+          name: postgres-vector-ca-public-reader
+          namespace: database

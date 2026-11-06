@@ -1,0 +1,2012 @@
+---
+# yaml-language-server: $schema=https://kubernetes-schemas.pages.dev/core/v1/configmap_v1.json
+# Custom Authentik blueprints, mounted read-only into the worker container at
+# /blueprints/custom (the community-standard custom-blueprint path - distinct
+# from authentik's own reserved /blueprints/default, /blueprints/example,
+# /blueprints/system subdirectories). Authentik watches this whole tree with
+# a continuous filesystem watch (inotify) plus a 60-minute periodic re-apply,
+# so any change here is picked up automatically without a pod restart.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: authentik-custom-blueprints
+data:
+  cac-default-authentication-mfa-threshold.yaml: |
+    ---
+    # Authentik's default-authentication-mfa-validation stage ships with
+    # "Last validation threshold" (last_auth_threshold) at seconds=0, which
+    # causes it to skip setting an "MFA already satisfied" cookie after a
+    # successful validation - under some cookie-handling conditions this
+    # lets the same MFA stage silently re-run within a single login,
+    # prompting for TOTP twice with no error. See goauthentik/authentik#5972.
+    #
+    # Targets the existing built-in stage by its natural key (name), not a
+    # hardcoded pk, so this applies correctly regardless of which authentik
+    # version seeded it. `state: present` + only the one overridden attr
+    # means authentik's own bundled seed blueprint still owns every other
+    # field on this stage - this blueprint only pins the one field that
+    # needed to move off its default.
+    #
+    # The binding runs in "all" mode so every bound policy must pass.
+    version: 1
+    metadata:
+      name: cac-default-authentication-mfa-validation threshold override
+    entries:
+      - model: authentik_stages_authenticator_validate.authenticatorvalidatestage
+        state: present
+        identifiers:
+          name: default-authentication-mfa-validation
+        attrs:
+          last_auth_threshold: seconds=30
+          not_configured_action: configure
+          # Only TOTP, passkeys/WebAuthn and recovery codes. Email codes are
+          # weaker, and SMS and Duo aren't set up.
+          device_classes: [static, totp, webauthn]
+          configuration_stages:
+            - !Find [authentik_stages_authenticator_totp.authenticatortotpstage, [name, TOTP Setup]]
+      - model: authentik_flows.flowstagebinding
+        id: login-mfa-binding
+        state: present
+        identifiers:
+          target: !Find [authentik_flows.flow, [slug, default-authentication-flow]]
+          stage: !Find [authentik_stages_authenticator_validate.authenticatorvalidatestage, [name, default-authentication-mfa-validation]]
+          order: 30
+        attrs:
+          evaluate_on_plan: false
+          re_evaluate_policies: true
+          policy_engine_mode: all
+      - model: authentik_policies_expression.expressionpolicy
+        id: mfa-exempt-policy
+        state: present
+        identifiers:
+          name: MFA exemption
+        attrs:
+          execution_logging: false
+          expression: |
+            flow_plan = request.context.get("flow_plan")
+            user = flow_plan.context.get("pending_user") if flow_plan else None
+            if user is None:
+                return True
+            return not user.all_groups().filter(name="${SECRET_AK_GROUP_MFA_EXEMPT}").exists()
+      - model: authentik_policies.policybinding
+        state: present
+        identifiers:
+          target: !KeyOf login-mfa-binding
+          policy: !KeyOf mfa-exempt-policy
+        attrs:
+          order: 20
+          enabled: true
+          negate: false
+          timeout: 30
+      - model: authentik_stages_authenticator_validate.authenticatorvalidatestage
+        state: absent
+        identifiers:
+          name: MFA
+  cac-groups.yaml: |
+    ---
+    # Custom access-control groups (excludes authentik's own built-in
+    # "authentik Admins"/"authentik Agent-Users"/"authentik Read-only" groups,
+    # which authentik seeds itself). Group membership (which real users belong
+    # to which group) is deliberately NOT set here - that's per-user data,
+    # assigned through the Authentik admin UI after a user exists, not
+    # something meaningful to "recreate from git."
+    version: 1
+    metadata:
+      name: cac-custom access-control groups
+    entries:
+      - model: authentik_core.group
+        state: present
+        identifiers:
+          name: ${SECRET_AK_GROUP_ADMIN}
+        attrs:
+          is_superuser: false
+      - model: authentik_core.group
+        state: present
+        identifiers:
+          name: ${SECRET_AK_GROUP_USERS}
+        attrs:
+          is_superuser: false
+      - model: authentik_core.group
+        state: present
+        identifiers:
+          name: ${SECRET_AK_GROUP_SF3_USERS}
+        attrs:
+          is_superuser: false
+      - model: authentik_core.group
+        state: present
+        identifiers:
+          name: ${SECRET_AK_GROUP_SF4_USERS}
+        attrs:
+          is_superuser: false
+      - model: authentik_core.group
+        state: present
+        identifiers:
+          name: ${SECRET_AK_GROUP_SF4_ADMIN}
+        attrs:
+          is_superuser: false
+      - model: authentik_core.group
+        state: present
+        identifiers:
+          name: ${SECRET_AK_GROUP_SF3_ADMIN}
+        attrs:
+          is_superuser: false
+      - model: authentik_core.group
+        state: present
+        identifiers:
+          name: ${SECRET_AK_GROUP_SF1_ADMIN}
+        attrs:
+          is_superuser: false
+      - model: authentik_core.group
+        state: present
+        identifiers:
+          name: ${SECRET_AK_GROUP_SF2_ADMIN}
+        attrs:
+          is_superuser: false
+      - model: authentik_core.group
+        state: present
+        identifiers:
+          name: ${SECRET_AK_GROUP_ZULIP_USERS}
+        attrs:
+          is_superuser: false
+      - model: authentik_core.group
+        state: present
+        identifiers:
+          name: ${SECRET_AK_GROUP_ZULIP_ADMIN}
+        attrs:
+          is_superuser: false
+      - model: authentik_core.group
+        state: present
+        identifiers:
+          name: ${SECRET_AK_GROUP_DONETICK_USERS}
+        attrs:
+          is_superuser: false
+      - model: authentik_core.group
+        state: present
+        identifiers:
+          name: ${SECRET_AK_GROUP_DONETICK_ADMIN}
+        attrs:
+          is_superuser: false
+      - model: authentik_core.group
+        state: present
+        identifiers:
+          name: ${SECRET_AK_GROUP_FRIGATE_USERS}
+        attrs:
+          is_superuser: false
+      # Exception to the rule above: this group's membership IS managed
+      # here, so the list lives in git and anything added in the UI is
+      # removed on the next apply.
+      - model: authentik_core.group
+        state: present
+        identifiers:
+          name: ${SECRET_AK_GROUP_MFA_EXEMPT}
+        attrs:
+          is_superuser: false
+          users:
+            - !Find [authentik_core.user, [username, ${SECRET_AK_USER_SF_DEV}]]
+  cac-native-oidc-apps.yaml: |
+    ---
+    # Native OIDC apps. client_id is
+    # kept literal (not secret - it's a public identifier, visible in every
+    # browser auth-code request) so a from-scratch rebuild reproduces the same
+    # value already configured in each app's 1Password OIDC_CLIENT_ID
+    # field. client_secret is deliberately omitted - left untouched on
+    # update; on a from-scratch create, generate fresh and copy into the
+    # matching 1Password item's OIDC_CLIENT_SECRET field as a one-time step.
+
+    version: 1
+    metadata:
+      name: cac-native OIDC applications
+    entries:
+      # --- gitea ---
+      - model: authentik_providers_oauth2.oauth2provider
+        state: present
+        identifiers:
+          name: Provider for gitea
+        attrs:
+          client_type: confidential
+          client_id: b3CZTVoTgfqfassjYZ8YpAhISLW0vP2zGYbYMkXu
+          issuer_mode: per_provider
+          sub_mode: hashed_user_id
+          include_claims_in_id_token: true
+          access_code_validity: minutes=1
+          access_token_validity: minutes=5
+          refresh_token_validity: days=30
+          refresh_token_threshold: hours=1
+          logout_method: backchannel
+          logout_uri: https://${SECRET_HOST_GITEA}.${SECRET_DOMAIN}/auth/oidc/callback
+          redirect_uris:
+            - matching_mode: strict
+              redirect_uri_type: authorization
+              url: https://${SECRET_HOST_GITEA}.${SECRET_DOMAIN}/user/oauth2/Authentik/callback
+          authorization_flow: !Find [authentik_flows.flow, [slug, default-provider-authorization-implicit-consent]]
+          invalidation_flow: !Find [authentik_flows.flow, [slug, default-provider-invalidation-flow]]
+          signing_key: !Find [authentik_crypto.certificatekeypair, [name, "authentik Self-signed Certificate"]]
+          property_mappings:
+            - !Find [authentik_providers_oauth2.scopemapping, [scope_name, openid]]
+            - !Find [authentik_providers_oauth2.scopemapping, [scope_name, email]]
+            - !Find [authentik_providers_oauth2.scopemapping, [scope_name, profile]]
+      - model: authentik_core.application
+        state: present
+        identifiers:
+          slug: ${SECRET_HOST_GITEA}
+        attrs:
+          name: gitea
+          meta_icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/svg/gitea.svg
+          policy_engine_mode: any
+          open_in_new_tab: false
+          provider: !Find [authentik_providers_oauth2.oauth2provider, [name, Provider for gitea]]
+      - model: authentik_policies.policybinding
+        state: present
+        identifiers:
+          target: !Find [authentik_core.application, [slug, ${SECRET_HOST_GITEA}]]
+          group: !Find [authentik_core.group, [name, ${SECRET_AK_GROUP_ADMIN}]]
+        attrs:
+          order: 0
+          enabled: true
+          negate: false
+          timeout: 30
+
+      - model: authentik_providers_oauth2.oauth2provider
+        state: present
+        identifiers:
+          name: Provider for ${SECRET_SF1_AK_NAME}
+        attrs:
+          client_type: confidential
+          client_id: XIkjcSDxton2Am7U7putXQLT3f5JF6VZGJFzVinz
+          issuer_mode: per_provider
+          sub_mode: hashed_user_id
+          include_claims_in_id_token: true
+          access_code_validity: minutes=1
+          access_token_validity: minutes=5
+          refresh_token_validity: days=30
+          refresh_token_threshold: hours=1
+          logout_method: backchannel
+          logout_uri: https://${SECRET_SF1_HOST}.${SECRET_DOMAIN}/auth/oidc/callback
+          redirect_uris:
+            - matching_mode: strict
+              redirect_uri_type: authorization
+              url: https://${SECRET_SF1_HOST}.${SECRET_DOMAIN}/auth/oidc/callback
+          authorization_flow: !Find [authentik_flows.flow, [slug, default-provider-authorization-implicit-consent]]
+          invalidation_flow: !Find [authentik_flows.flow, [slug, default-provider-invalidation-flow]]
+          signing_key: !Find [authentik_crypto.certificatekeypair, [name, "authentik Self-signed Certificate"]]
+          property_mappings:
+            - !Find [authentik_providers_oauth2.scopemapping, [scope_name, openid]]
+            - !Find [authentik_providers_oauth2.scopemapping, [scope_name, email]]
+            - !Find [authentik_providers_oauth2.scopemapping, [scope_name, profile]]
+      - model: authentik_core.application
+        state: present
+        identifiers:
+          slug: ${SECRET_SF1_AK_SLUG}
+        attrs:
+          name: ${SECRET_SF1_AK_NAME}
+          meta_icon: https://${SECRET_SF1_HOST}.${SECRET_DOMAIN}/static/favicon.svg
+          policy_engine_mode: any
+          open_in_new_tab: false
+          provider: !Find [authentik_providers_oauth2.oauth2provider, [name, Provider for ${SECRET_SF1_AK_NAME}]]
+      - model: authentik_policies.policybinding
+        state: present
+        identifiers:
+          target: !Find [authentik_core.application, [slug, ${SECRET_SF1_AK_SLUG}]]
+          group: !Find [authentik_core.group, [name, ${SECRET_AK_GROUP_ADMIN}]]
+        attrs:
+          order: 0
+          enabled: true
+          negate: false
+          timeout: 30
+      - model: authentik_policies.policybinding
+        state: present
+        identifiers:
+          target: !Find [authentik_core.application, [slug, ${SECRET_SF1_AK_SLUG}]]
+          group: !Find [authentik_core.group, [name, ${SECRET_AK_GROUP_USERS}]]
+        attrs:
+          order: 0
+          enabled: true
+          negate: false
+          timeout: 30
+      - model: authentik_policies.policybinding
+        state: present
+        identifiers:
+          target: !Find [authentik_core.application, [slug, ${SECRET_SF1_AK_SLUG}]]
+          group: !Find [authentik_core.group, [name, ${SECRET_AK_GROUP_SF1_ADMIN}]]
+        attrs:
+          order: 1
+          enabled: true
+          negate: false
+          timeout: 30
+
+      - model: authentik_providers_oauth2.oauth2provider
+        state: present
+        identifiers:
+          name: Provider for ${SECRET_SF2_AK_NAME}
+        attrs:
+          client_type: confidential
+          client_id: xCEIaE1rmPhB4fpwW9Gjlu3C3Aj6HGOOJWVJScvU
+          issuer_mode: per_provider
+          sub_mode: hashed_user_id
+          include_claims_in_id_token: true
+          access_code_validity: minutes=1
+          access_token_validity: minutes=5
+          refresh_token_validity: days=30
+          refresh_token_threshold: hours=1
+          logout_method: backchannel
+          logout_uri: https://${SECRET_SF2_HOST}.${SECRET_DOMAIN}/auth/oidc/callback
+          redirect_uris:
+            - matching_mode: strict
+              redirect_uri_type: authorization
+              url: https://${SECRET_SF2_HOST}.${SECRET_DOMAIN}/auth/oidc/callback
+          authorization_flow: !Find [authentik_flows.flow, [slug, default-provider-authorization-implicit-consent]]
+          invalidation_flow: !Find [authentik_flows.flow, [slug, default-provider-invalidation-flow]]
+          signing_key: !Find [authentik_crypto.certificatekeypair, [name, "authentik Self-signed Certificate"]]
+          property_mappings:
+            - !Find [authentik_providers_oauth2.scopemapping, [scope_name, openid]]
+            - !Find [authentik_providers_oauth2.scopemapping, [scope_name, email]]
+            - !Find [authentik_providers_oauth2.scopemapping, [scope_name, profile]]
+      - model: authentik_core.application
+        state: present
+        identifiers:
+          slug: ${SECRET_SF2_AK_SLUG}
+        attrs:
+          name: ${SECRET_SF2_AK_NAME}
+          meta_icon: https://${SECRET_SF2_HOST}.${SECRET_DOMAIN}/static/favicon.svg
+          policy_engine_mode: any
+          open_in_new_tab: false
+          provider: !Find [authentik_providers_oauth2.oauth2provider, [name, Provider for ${SECRET_SF2_AK_NAME}]]
+      - model: authentik_policies.policybinding
+        state: present
+        identifiers:
+          target: !Find [authentik_core.application, [slug, ${SECRET_SF2_AK_SLUG}]]
+          group: !Find [authentik_core.group, [name, ${SECRET_AK_GROUP_USERS}]]
+        attrs:
+          order: 0
+          enabled: true
+          negate: false
+          timeout: 30
+      - model: authentik_policies.policybinding
+        state: present
+        identifiers:
+          target: !Find [authentik_core.application, [slug, ${SECRET_SF2_AK_SLUG}]]
+          group: !Find [authentik_core.group, [name, ${SECRET_AK_GROUP_ADMIN}]]
+        attrs:
+          order: 1
+          enabled: true
+          negate: false
+          timeout: 30
+      - model: authentik_policies.policybinding
+        state: present
+        identifiers:
+          target: !Find [authentik_core.application, [slug, ${SECRET_SF2_AK_SLUG}]]
+          group: !Find [authentik_core.group, [name, ${SECRET_AK_GROUP_SF2_ADMIN}]]
+        attrs:
+          order: 2
+          enabled: true
+          negate: false
+          timeout: 30
+
+      - model: authentik_providers_oauth2.oauth2provider
+        state: present
+        identifiers:
+          name: Provider for ${SECRET_SF3_AK_NAME}
+        attrs:
+          client_type: confidential
+          client_id: sTbe8QIB5UAGJrRalktyg819YCmMNowGtaZttMxC
+          issuer_mode: per_provider
+          sub_mode: hashed_user_id
+          include_claims_in_id_token: true
+          access_code_validity: minutes=1
+          access_token_validity: minutes=5
+          refresh_token_validity: days=30
+          refresh_token_threshold: hours=1
+          logout_method: backchannel
+          logout_uri: https://${SECRET_SF3_HOST}.${SECRET_DOMAIN}/auth/oidc/callback
+          redirect_uris:
+            - matching_mode: strict
+              redirect_uri_type: authorization
+              url: https://${SECRET_SF3_HOST}.${SECRET_DOMAIN}/auth/oidc/callback
+          authorization_flow: !Find [authentik_flows.flow, [slug, default-provider-authorization-implicit-consent]]
+          invalidation_flow: !Find [authentik_flows.flow, [slug, default-provider-invalidation-flow]]
+          signing_key: !Find [authentik_crypto.certificatekeypair, [name, "authentik Self-signed Certificate"]]
+          property_mappings:
+            - !Find [authentik_providers_oauth2.scopemapping, [scope_name, openid]]
+            - !Find [authentik_providers_oauth2.scopemapping, [scope_name, email]]
+            - !Find [authentik_providers_oauth2.scopemapping, [scope_name, profile]]
+      - model: authentik_core.application
+        state: present
+        identifiers:
+          slug: ${SECRET_SF3_AK_SLUG}
+        attrs:
+          name: ${SECRET_SF3_AK_NAME}
+          meta_icon: https://${SECRET_SF3_HOST}.${SECRET_DOMAIN}/static/favicon.svg
+          policy_engine_mode: any
+          open_in_new_tab: false
+          provider: !Find [authentik_providers_oauth2.oauth2provider, [name, Provider for ${SECRET_SF3_AK_NAME}]]
+      - model: authentik_policies.policybinding
+        state: present
+        identifiers:
+          target: !Find [authentik_core.application, [slug, ${SECRET_SF3_AK_SLUG}]]
+          group: !Find [authentik_core.group, [name, ${SECRET_AK_GROUP_SF3_USERS}]]
+        attrs:
+          order: 0
+          enabled: true
+          negate: false
+          timeout: 30
+      - model: authentik_policies.policybinding
+        state: present
+        identifiers:
+          target: !Find [authentik_core.application, [slug, ${SECRET_SF3_AK_SLUG}]]
+          group: !Find [authentik_core.group, [name, ${SECRET_AK_GROUP_SF3_ADMIN}]]
+        attrs:
+          order: 1
+          enabled: true
+          negate: false
+          timeout: 30
+
+      - model: authentik_providers_oauth2.oauth2provider
+        state: present
+        identifiers:
+          name: Provider for ${SECRET_SF4_AK_NAME}
+        attrs:
+          client_type: confidential
+          client_id: fpSSoLpNWXoJLcF3thzpEpsxuB3fItPz9tFoY2do
+          issuer_mode: per_provider
+          sub_mode: hashed_user_id
+          include_claims_in_id_token: true
+          access_code_validity: minutes=1
+          access_token_validity: minutes=5
+          refresh_token_validity: days=30
+          refresh_token_threshold: hours=1
+          logout_method: backchannel
+          logout_uri: https://${SECRET_SF4_HOST}.${SECRET_DOMAIN}/auth/oidc/callback
+          redirect_uris:
+            - matching_mode: strict
+              redirect_uri_type: authorization
+              url: https://${SECRET_SF4_HOST}.${SECRET_DOMAIN}/auth/oidc/callback
+          authorization_flow: !Find [authentik_flows.flow, [slug, default-provider-authorization-implicit-consent]]
+          invalidation_flow: !Find [authentik_flows.flow, [slug, default-provider-invalidation-flow]]
+          signing_key: !Find [authentik_crypto.certificatekeypair, [name, "authentik Self-signed Certificate"]]
+          property_mappings:
+            - !Find [authentik_providers_oauth2.scopemapping, [scope_name, openid]]
+            - !Find [authentik_providers_oauth2.scopemapping, [scope_name, email]]
+            - !Find [authentik_providers_oauth2.scopemapping, [scope_name, profile]]
+      - model: authentik_core.application
+        state: present
+        identifiers:
+          slug: ${SECRET_SF4_AK_SLUG}
+        attrs:
+          name: ${SECRET_SF4_AK_NAME}
+          meta_icon: https://${SECRET_SF4_HOST}.${SECRET_DOMAIN}/static/favicon.svg
+          policy_engine_mode: any
+          open_in_new_tab: false
+          provider: !Find [authentik_providers_oauth2.oauth2provider, [name, Provider for ${SECRET_SF4_AK_NAME}]]
+      - model: authentik_policies.policybinding
+        state: present
+        identifiers:
+          target: !Find [authentik_core.application, [slug, ${SECRET_SF4_AK_SLUG}]]
+          group: !Find [authentik_core.group, [name, ${SECRET_AK_GROUP_SF4_USERS}]]
+        attrs:
+          order: 0
+          enabled: true
+          negate: false
+          timeout: 30
+      - model: authentik_policies.policybinding
+        state: present
+        identifiers:
+          target: !Find [authentik_core.application, [slug, ${SECRET_SF4_AK_SLUG}]]
+          group: !Find [authentik_core.group, [name, ${SECRET_AK_GROUP_SF4_ADMIN}]]
+        attrs:
+          order: 1
+          enabled: true
+          negate: false
+          timeout: 30
+
+      # --- Radarr --- Envoy Gateway's
+      # SecurityPolicy is the OIDC relying party here, not Radarr itself -
+      # redirect_uri is Envoy's own callback path, not an app-implemented
+      # one.
+      - model: authentik_providers_oauth2.oauth2provider
+        state: present
+        identifiers:
+          name: Provider for Radarr (OIDC)
+        attrs:
+          client_type: confidential
+          grant_types:
+            - authorization_code
+            - refresh_token
+          issuer_mode: per_provider
+          sub_mode: hashed_user_id
+          include_claims_in_id_token: false
+          access_code_validity: minutes=1
+          access_token_validity: minutes=5
+          refresh_token_validity: days=30
+          refresh_token_threshold: hours=1
+          redirect_uris:
+            - matching_mode: strict
+              redirect_uri_type: authorization
+              url: https://radarr.${SECRET_DOMAIN}/oauth2/callback
+          authorization_flow: !Find [authentik_flows.flow, [slug, default-provider-authorization-implicit-consent]]
+          invalidation_flow: !Find [authentik_flows.flow, [slug, default-provider-invalidation-flow]]
+          signing_key: !Find [authentik_crypto.certificatekeypair, [name, "authentik Self-signed Certificate"]]
+          property_mappings:
+            - !Find [authentik_providers_oauth2.scopemapping, [scope_name, openid]]
+            - !Find [authentik_providers_oauth2.scopemapping, [scope_name, email]]
+            - !Find [authentik_providers_oauth2.scopemapping, [scope_name, profile]]
+      - model: authentik_core.application
+        state: present
+        identifiers:
+          slug: radarr-oidc
+        attrs:
+          name: Radarr
+          meta_icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/svg/radarr.svg
+          policy_engine_mode: any
+          open_in_new_tab: false
+          provider: !Find [authentik_providers_oauth2.oauth2provider, [name, Provider for Radarr (OIDC)]]
+      - model: authentik_policies.policybinding
+        state: present
+        identifiers:
+          target: !Find [authentik_core.application, [slug, radarr-oidc]]
+          group: !Find [authentik_core.group, [name, ${SECRET_AK_GROUP_ADMIN}]]
+        attrs:
+          order: 0
+          enabled: true
+          negate: false
+          timeout: 30
+
+      # --- Sonarr --- slug stays sonarr-oidc: blueprint identifiers can't
+      # safely rename a slug later.
+      - model: authentik_providers_oauth2.oauth2provider
+        state: present
+        identifiers:
+          name: Provider for Sonarr (OIDC)
+        attrs:
+          client_type: confidential
+          grant_types:
+            - authorization_code
+            - refresh_token
+          issuer_mode: per_provider
+          sub_mode: hashed_user_id
+          include_claims_in_id_token: false
+          access_code_validity: minutes=1
+          access_token_validity: minutes=5
+          refresh_token_validity: days=30
+          refresh_token_threshold: hours=1
+          redirect_uris:
+            - matching_mode: strict
+              redirect_uri_type: authorization
+              url: https://sonarr.${SECRET_DOMAIN}/oauth2/callback
+          authorization_flow: !Find [authentik_flows.flow, [slug, default-provider-authorization-implicit-consent]]
+          invalidation_flow: !Find [authentik_flows.flow, [slug, default-provider-invalidation-flow]]
+          signing_key: !Find [authentik_crypto.certificatekeypair, [name, "authentik Self-signed Certificate"]]
+          property_mappings:
+            - !Find [authentik_providers_oauth2.scopemapping, [scope_name, openid]]
+            - !Find [authentik_providers_oauth2.scopemapping, [scope_name, email]]
+            - !Find [authentik_providers_oauth2.scopemapping, [scope_name, profile]]
+      - model: authentik_core.application
+        state: present
+        identifiers:
+          slug: sonarr-oidc
+        attrs:
+          name: Sonarr
+          meta_icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/svg/sonarr.svg
+          policy_engine_mode: any
+          open_in_new_tab: false
+          provider: !Find [authentik_providers_oauth2.oauth2provider, [name, Provider for Sonarr (OIDC)]]
+      - model: authentik_policies.policybinding
+        state: present
+        identifiers:
+          target: !Find [authentik_core.application, [slug, sonarr-oidc]]
+          group: !Find [authentik_core.group, [name, ${SECRET_AK_GROUP_ADMIN}]]
+        attrs:
+          order: 0
+          enabled: true
+          negate: false
+          timeout: 30
+
+      # --- Prowlarr --- same pattern as Radarr: Envoy Gateway's
+      # SecurityPolicy is the relying party, so the redirect_uri is Envoy's
+      # callback.
+      - model: authentik_providers_oauth2.oauth2provider
+        state: present
+        identifiers:
+          name: Provider for Prowlarr (OIDC)
+        attrs:
+          client_type: confidential
+          grant_types:
+            - authorization_code
+            - refresh_token
+          issuer_mode: per_provider
+          sub_mode: hashed_user_id
+          include_claims_in_id_token: false
+          access_code_validity: minutes=1
+          access_token_validity: minutes=5
+          refresh_token_validity: days=30
+          refresh_token_threshold: hours=1
+          redirect_uris:
+            - matching_mode: strict
+              redirect_uri_type: authorization
+              url: https://prowlarr.${SECRET_DOMAIN}/oauth2/callback
+          authorization_flow: !Find [authentik_flows.flow, [slug, default-provider-authorization-implicit-consent]]
+          invalidation_flow: !Find [authentik_flows.flow, [slug, default-provider-invalidation-flow]]
+          signing_key: !Find [authentik_crypto.certificatekeypair, [name, "authentik Self-signed Certificate"]]
+          property_mappings:
+            - !Find [authentik_providers_oauth2.scopemapping, [scope_name, openid]]
+            - !Find [authentik_providers_oauth2.scopemapping, [scope_name, email]]
+            - !Find [authentik_providers_oauth2.scopemapping, [scope_name, profile]]
+      - model: authentik_core.application
+        state: present
+        identifiers:
+          slug: prowlarr-oidc
+        attrs:
+          name: Prowlarr
+          meta_icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/svg/prowlarr.svg
+          policy_engine_mode: any
+          open_in_new_tab: false
+          provider: !Find [authentik_providers_oauth2.oauth2provider, [name, Provider for Prowlarr (OIDC)]]
+      - model: authentik_policies.policybinding
+        state: present
+        identifiers:
+          target: !Find [authentik_core.application, [slug, prowlarr-oidc]]
+          group: !Find [authentik_core.group, [name, ${SECRET_AK_GROUP_ADMIN}]]
+        attrs:
+          order: 0
+          enabled: true
+          negate: false
+          timeout: 30
+
+      # --- Gatus --- same pattern as Radarr:
+      # Envoy Gateway's SecurityPolicy is the relying party, so the
+      # redirect_uri is Envoy's callback. Slug is status-oidc from the
+      # start (blueprint identifiers can't safely rename a slug later).
+      - model: authentik_providers_oauth2.oauth2provider
+        state: present
+        identifiers:
+          name: Provider for Gatus (OIDC)
+        attrs:
+          client_type: confidential
+          grant_types:
+            - authorization_code
+            - refresh_token
+          issuer_mode: per_provider
+          sub_mode: hashed_user_id
+          include_claims_in_id_token: false
+          access_code_validity: minutes=1
+          access_token_validity: minutes=5
+          refresh_token_validity: days=30
+          refresh_token_threshold: hours=1
+          redirect_uris:
+            - matching_mode: strict
+              redirect_uri_type: authorization
+              url: https://${SECRET_HOST_GATUS}.${SECRET_DOMAIN}/oauth2/callback
+          authorization_flow: !Find [authentik_flows.flow, [slug, default-provider-authorization-implicit-consent]]
+          invalidation_flow: !Find [authentik_flows.flow, [slug, default-provider-invalidation-flow]]
+          signing_key: !Find [authentik_crypto.certificatekeypair, [name, "authentik Self-signed Certificate"]]
+          property_mappings:
+            - !Find [authentik_providers_oauth2.scopemapping, [scope_name, openid]]
+            - !Find [authentik_providers_oauth2.scopemapping, [scope_name, email]]
+            - !Find [authentik_providers_oauth2.scopemapping, [scope_name, profile]]
+      - model: authentik_core.application
+        state: present
+        identifiers:
+          slug: status-oidc
+        attrs:
+          name: Gatus
+          meta_icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/svg/gatus.svg
+          policy_engine_mode: any
+          open_in_new_tab: false
+          provider: !Find [authentik_providers_oauth2.oauth2provider, [name, Provider for Gatus (OIDC)]]
+      - model: authentik_policies.policybinding
+        state: present
+        identifiers:
+          target: !Find [authentik_core.application, [slug, status-oidc]]
+          group: !Find [authentik_core.group, [name, ${SECRET_AK_GROUP_ADMIN}]]
+        attrs:
+          order: 0
+          enabled: true
+          negate: false
+          timeout: 30
+
+      # --- Frigate --- same pattern as Radarr: Envoy Gateway's
+      # SecurityPolicy is the OIDC relying party. Frigate has no OIDC of its
+      # own.
+      - model: authentik_providers_oauth2.oauth2provider
+        state: present
+        identifiers:
+          name: Provider for Frigate (OIDC)
+        attrs:
+          client_type: confidential
+          grant_types:
+            - authorization_code
+            - refresh_token
+          client_id: 2nlKNvWIhEV1abz1UpGpZ4GfnjzQ5vbZo7AOr7i0
+          issuer_mode: per_provider
+          sub_mode: hashed_user_id
+          include_claims_in_id_token: false
+          access_code_validity: minutes=1
+          access_token_validity: minutes=5
+          refresh_token_validity: days=30
+          refresh_token_threshold: hours=1
+          redirect_uris:
+            - matching_mode: strict
+              redirect_uri_type: authorization
+              url: https://frigate.${SECRET_DOMAIN}/oauth2/callback
+          authorization_flow: !Find [authentik_flows.flow, [slug, default-provider-authorization-implicit-consent]]
+          invalidation_flow: !Find [authentik_flows.flow, [slug, default-provider-invalidation-flow]]
+          signing_key: !Find [authentik_crypto.certificatekeypair, [name, "authentik Self-signed Certificate"]]
+          property_mappings:
+            - !Find [authentik_providers_oauth2.scopemapping, [scope_name, openid]]
+            - !Find [authentik_providers_oauth2.scopemapping, [scope_name, email]]
+            - !Find [authentik_providers_oauth2.scopemapping, [scope_name, profile]]
+      - model: authentik_core.application
+        state: present
+        identifiers:
+          slug: frigate
+        attrs:
+          name: Frigate
+          meta_icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/svg/frigate.svg
+          policy_engine_mode: any
+          open_in_new_tab: false
+          provider: !Find [authentik_providers_oauth2.oauth2provider, [name, Provider for Frigate (OIDC)]]
+      - model: authentik_policies.policybinding
+        state: present
+        identifiers:
+          target: !Find [authentik_core.application, [slug, frigate]]
+          group: !Find [authentik_core.group, [name, ${SECRET_AK_GROUP_FRIGATE_USERS}]]
+        attrs:
+          order: 0
+          enabled: true
+          negate: false
+          timeout: 30
+
+      # --- Prometheus --- same pattern as Radarr: Envoy Gateway's
+      # SecurityPolicy is the OIDC relying party.
+      - model: authentik_providers_oauth2.oauth2provider
+        state: present
+        identifiers:
+          name: Provider for Prometheus (OIDC)
+        attrs:
+          client_type: confidential
+          grant_types:
+            - authorization_code
+            - refresh_token
+          client_id: P8wlyP8NYmb34CbnYOAjBEDgD5g1mKnVA7hX5zxy
+          issuer_mode: per_provider
+          sub_mode: hashed_user_id
+          include_claims_in_id_token: false
+          access_code_validity: minutes=1
+          access_token_validity: minutes=5
+          refresh_token_validity: days=30
+          refresh_token_threshold: hours=1
+          redirect_uris:
+            - matching_mode: strict
+              redirect_uri_type: authorization
+              url: https://${SECRET_HOST_PROMETHEUS}.${SECRET_DOMAIN}/oauth2/callback
+          authorization_flow: !Find [authentik_flows.flow, [slug, default-provider-authorization-implicit-consent]]
+          invalidation_flow: !Find [authentik_flows.flow, [slug, default-provider-invalidation-flow]]
+          signing_key: !Find [authentik_crypto.certificatekeypair, [name, "authentik Self-signed Certificate"]]
+          property_mappings:
+            - !Find [authentik_providers_oauth2.scopemapping, [scope_name, openid]]
+            - !Find [authentik_providers_oauth2.scopemapping, [scope_name, email]]
+            - !Find [authentik_providers_oauth2.scopemapping, [scope_name, profile]]
+      - model: authentik_core.application
+        state: present
+        identifiers:
+          slug: prometheus
+        attrs:
+          name: Prometheus
+          meta_icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/svg/prometheus.svg
+          policy_engine_mode: any
+          open_in_new_tab: false
+          provider: !Find [authentik_providers_oauth2.oauth2provider, [name, Provider for Prometheus (OIDC)]]
+      - model: authentik_policies.policybinding
+        state: present
+        identifiers:
+          target: !Find [authentik_core.application, [slug, prometheus]]
+          group: !Find [authentik_core.group, [name, ${SECRET_AK_GROUP_ADMIN}]]
+        attrs:
+          order: 0
+          enabled: true
+          negate: false
+          timeout: 30
+
+      # --- Alertmanager --- same pattern as Radarr: Envoy Gateway's
+      # SecurityPolicy is the OIDC relying party.
+      - model: authentik_providers_oauth2.oauth2provider
+        state: present
+        identifiers:
+          name: Provider for Alertmanager (OIDC)
+        attrs:
+          client_type: confidential
+          grant_types:
+            - authorization_code
+            - refresh_token
+          client_id: 0rxtVYByjsyyF8yTvizbIaZWM77YeHucY0P3J8Ui
+          issuer_mode: per_provider
+          sub_mode: hashed_user_id
+          include_claims_in_id_token: false
+          access_code_validity: minutes=1
+          access_token_validity: minutes=5
+          refresh_token_validity: days=30
+          refresh_token_threshold: hours=1
+          redirect_uris:
+            - matching_mode: strict
+              redirect_uri_type: authorization
+              url: https://${SECRET_HOST_ALERTMANAGER}.${SECRET_DOMAIN}/oauth2/callback
+          authorization_flow: !Find [authentik_flows.flow, [slug, default-provider-authorization-implicit-consent]]
+          invalidation_flow: !Find [authentik_flows.flow, [slug, default-provider-invalidation-flow]]
+          signing_key: !Find [authentik_crypto.certificatekeypair, [name, "authentik Self-signed Certificate"]]
+          property_mappings:
+            - !Find [authentik_providers_oauth2.scopemapping, [scope_name, openid]]
+            - !Find [authentik_providers_oauth2.scopemapping, [scope_name, email]]
+            - !Find [authentik_providers_oauth2.scopemapping, [scope_name, profile]]
+      - model: authentik_core.application
+        state: present
+        identifiers:
+          slug: alertmanager
+        attrs:
+          name: Alertmanager
+          meta_icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/svg/alertmanager.svg
+          policy_engine_mode: any
+          open_in_new_tab: false
+          provider: !Find [authentik_providers_oauth2.oauth2provider, [name, Provider for Alertmanager (OIDC)]]
+      - model: authentik_policies.policybinding
+        state: present
+        identifiers:
+          target: !Find [authentik_core.application, [slug, alertmanager]]
+          group: !Find [authentik_core.group, [name, ${SECRET_AK_GROUP_ADMIN}]]
+        attrs:
+          order: 0
+          enabled: true
+          negate: false
+          timeout: 30
+
+      # --- Blackbox Exporter --- same pattern as Radarr: Envoy Gateway's
+      # SecurityPolicy is the OIDC relying party.
+      - model: authentik_providers_oauth2.oauth2provider
+        state: present
+        identifiers:
+          name: Provider for Blackbox Exporter (OIDC)
+        attrs:
+          client_type: confidential
+          grant_types:
+            - authorization_code
+            - refresh_token
+          client_id: cNwmzDuwgWATjYtdpjDe8OmGfgtwDxeaK5Uuo1fq
+          issuer_mode: per_provider
+          sub_mode: hashed_user_id
+          include_claims_in_id_token: false
+          access_code_validity: minutes=1
+          access_token_validity: minutes=5
+          refresh_token_validity: days=30
+          refresh_token_threshold: hours=1
+          redirect_uris:
+            - matching_mode: strict
+              redirect_uri_type: authorization
+              url: https://blackbox-exporter.${SECRET_DOMAIN}/oauth2/callback
+          authorization_flow: !Find [authentik_flows.flow, [slug, default-provider-authorization-implicit-consent]]
+          invalidation_flow: !Find [authentik_flows.flow, [slug, default-provider-invalidation-flow]]
+          signing_key: !Find [authentik_crypto.certificatekeypair, [name, "authentik Self-signed Certificate"]]
+          property_mappings:
+            - !Find [authentik_providers_oauth2.scopemapping, [scope_name, openid]]
+            - !Find [authentik_providers_oauth2.scopemapping, [scope_name, email]]
+            - !Find [authentik_providers_oauth2.scopemapping, [scope_name, profile]]
+      - model: authentik_core.application
+        state: present
+        identifiers:
+          slug: blackbox-exporter
+        attrs:
+          name: Blackbox Exporter
+          meta_icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/svg/prometheus.svg
+          policy_engine_mode: any
+          open_in_new_tab: false
+          provider: !Find [authentik_providers_oauth2.oauth2provider, [name, Provider for Blackbox Exporter (OIDC)]]
+      - model: authentik_policies.policybinding
+        state: present
+        identifiers:
+          target: !Find [authentik_core.application, [slug, blackbox-exporter]]
+          group: !Find [authentik_core.group, [name, ${SECRET_AK_GROUP_ADMIN}]]
+        attrs:
+          order: 0
+          enabled: true
+          negate: false
+          timeout: 30
+
+      # --- Ceph Dashboard --- same pattern as Radarr: Envoy Gateway's
+      # SecurityPolicy is the OIDC relying party.
+      - model: authentik_providers_oauth2.oauth2provider
+        state: present
+        identifiers:
+          name: Provider for Ceph Dashboard (OIDC)
+        attrs:
+          client_type: confidential
+          grant_types:
+            - authorization_code
+            - refresh_token
+          client_id: BsP0ivGYEzbl0CWxlFfkwaL2UbWengKuTdLNqg3Q
+          issuer_mode: per_provider
+          sub_mode: hashed_user_id
+          include_claims_in_id_token: false
+          access_code_validity: minutes=1
+          access_token_validity: minutes=5
+          refresh_token_validity: days=30
+          refresh_token_threshold: hours=1
+          redirect_uris:
+            - matching_mode: strict
+              redirect_uri_type: authorization
+              url: https://rook.${SECRET_DOMAIN}/oauth2/callback
+          authorization_flow: !Find [authentik_flows.flow, [slug, default-provider-authorization-implicit-consent]]
+          invalidation_flow: !Find [authentik_flows.flow, [slug, default-provider-invalidation-flow]]
+          signing_key: !Find [authentik_crypto.certificatekeypair, [name, "authentik Self-signed Certificate"]]
+          property_mappings:
+            - !Find [authentik_providers_oauth2.scopemapping, [scope_name, openid]]
+            - !Find [authentik_providers_oauth2.scopemapping, [scope_name, email]]
+            - !Find [authentik_providers_oauth2.scopemapping, [scope_name, profile]]
+      - model: authentik_core.application
+        state: present
+        identifiers:
+          slug: rook-ceph
+        attrs:
+          name: Ceph Dashboard
+          meta_icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/svg/ceph.svg
+          policy_engine_mode: any
+          open_in_new_tab: false
+          provider: !Find [authentik_providers_oauth2.oauth2provider, [name, Provider for Ceph Dashboard (OIDC)]]
+      - model: authentik_policies.policybinding
+        state: present
+        identifiers:
+          target: !Find [authentik_core.application, [slug, rook-ceph]]
+          group: !Find [authentik_core.group, [name, ${SECRET_AK_GROUP_ADMIN}]]
+        attrs:
+          order: 0
+          enabled: true
+          negate: false
+          timeout: 30
+
+      # --- Filebrowser --- same pattern as Radarr: Envoy Gateway's
+      # SecurityPolicy is the OIDC relying party.
+      - model: authentik_providers_oauth2.oauth2provider
+        state: present
+        identifiers:
+          name: Provider for Filebrowser (OIDC)
+        attrs:
+          client_type: confidential
+          grant_types:
+            - authorization_code
+            - refresh_token
+          client_id: EwZeAbLDMbsjeEZb6KGYxntbQ019GbSWgWR3EICM
+          issuer_mode: per_provider
+          sub_mode: hashed_user_id
+          include_claims_in_id_token: false
+          access_code_validity: minutes=1
+          access_token_validity: minutes=5
+          refresh_token_validity: days=30
+          refresh_token_threshold: hours=1
+          redirect_uris:
+            - matching_mode: strict
+              redirect_uri_type: authorization
+              url: https://filebrowser.${SECRET_DOMAIN}/oauth2/callback
+          authorization_flow: !Find [authentik_flows.flow, [slug, default-provider-authorization-implicit-consent]]
+          invalidation_flow: !Find [authentik_flows.flow, [slug, default-provider-invalidation-flow]]
+          signing_key: !Find [authentik_crypto.certificatekeypair, [name, "authentik Self-signed Certificate"]]
+          property_mappings:
+            - !Find [authentik_providers_oauth2.scopemapping, [scope_name, openid]]
+            - !Find [authentik_providers_oauth2.scopemapping, [scope_name, email]]
+            - !Find [authentik_providers_oauth2.scopemapping, [scope_name, profile]]
+      - model: authentik_core.application
+        state: present
+        identifiers:
+          slug: filebrowser
+        attrs:
+          name: Filebrowser
+          meta_icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/svg/filebrowser.svg
+          policy_engine_mode: any
+          open_in_new_tab: false
+          provider: !Find [authentik_providers_oauth2.oauth2provider, [name, Provider for Filebrowser (OIDC)]]
+      - model: authentik_policies.policybinding
+        state: present
+        identifiers:
+          target: !Find [authentik_core.application, [slug, filebrowser]]
+          group: !Find [authentik_core.group, [name, ${SECRET_AK_GROUP_ADMIN}]]
+        attrs:
+          order: 0
+          enabled: true
+          negate: false
+          timeout: 30
+
+      # --- Kavita --- native OIDC. Kavita reads the issuer, client ID and
+      # secret from appsettings.json (written at startup from the kavita
+      # 1Password item); provisioning and permissions are set in Kavita.
+      - model: authentik_providers_oauth2.oauth2provider
+        state: present
+        identifiers:
+          name: Provider for Kavita (OIDC)
+        attrs:
+          client_type: confidential
+          grant_types:
+            - authorization_code
+            - refresh_token
+          client_id: ykgmtPSLYldo7ZwtRNyCoV4waHc1YwLSEsvA0ReX
+          issuer_mode: per_provider
+          sub_mode: hashed_user_id
+          include_claims_in_id_token: true
+          access_code_validity: minutes=1
+          access_token_validity: minutes=5
+          refresh_token_validity: days=30
+          refresh_token_threshold: hours=1
+          redirect_uris:
+            - matching_mode: strict
+              redirect_uri_type: authorization
+              url: https://${SECRET_HOST_KAVITA}.${SECRET_DOMAIN}/signin-oidc
+          authorization_flow: !Find [authentik_flows.flow, [slug, default-provider-authorization-implicit-consent]]
+          invalidation_flow: !Find [authentik_flows.flow, [slug, default-provider-invalidation-flow]]
+          signing_key: !Find [authentik_crypto.certificatekeypair, [name, "authentik Self-signed Certificate"]]
+          property_mappings:
+            - !Find [authentik_providers_oauth2.scopemapping, [scope_name, openid]]
+            - !Find [authentik_providers_oauth2.scopemapping, [scope_name, email]]
+            - !Find [authentik_providers_oauth2.scopemapping, [scope_name, profile]]
+            - !Find [authentik_providers_oauth2.scopemapping, [scope_name, offline_access]]
+      - model: authentik_core.application
+        state: present
+        identifiers:
+          slug: kavita
+        attrs:
+          name: Kavita
+          meta_icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/svg/kavita.svg
+          meta_launch_url: https://${SECRET_HOST_KAVITA}.${SECRET_DOMAIN}
+          policy_engine_mode: any
+          open_in_new_tab: true
+          provider: !Find [authentik_providers_oauth2.oauth2provider, [name, Provider for Kavita (OIDC)]]
+      - model: authentik_policies.policybinding
+        state: present
+        identifiers:
+          target: !Find [authentik_core.application, [slug, kavita]]
+          group: !Find [authentik_core.group, [name, ${SECRET_AK_GROUP_ADMIN}]]
+        attrs:
+          order: 0
+          enabled: true
+          negate: false
+          timeout: 30
+      - model: authentik_policies.policybinding
+        state: present
+        identifiers:
+          target: !Find [authentik_core.application, [slug, kavita]]
+          group: !Find [authentik_core.group, [name, ${SECRET_AK_GROUP_USERS}]]
+        attrs:
+          order: 0
+          enabled: true
+          negate: false
+          timeout: 30
+
+      # --- Grafana --- native OIDC: Grafana's
+      # generic_oauth is the relying party, so the redirect_uri is Grafana's
+      # own callback. Grafana maps the `groups` claim from the profile scope
+      # to GrafanaAdmin and rejects anyone else (role_attribute_strict).
+      - model: authentik_providers_oauth2.oauth2provider
+        state: present
+        identifiers:
+          name: Provider for Grafana (OIDC)
+        attrs:
+          client_type: confidential
+          # Must be explicit: a provider created by a blueprint gets an empty
+          # grant_types list, and Authentik then rejects every authorize
+          # request as "otherwise malformed" (the older providers were
+          # backfilled with all types by a migration).
+          grant_types:
+            - authorization_code
+            - refresh_token
+          client_id: EZtrWJ3gdR0QhcJRgkB0C7c1usp6j9AiRnS7o4Qh
+          issuer_mode: per_provider
+          sub_mode: hashed_user_id
+          include_claims_in_id_token: true
+          access_code_validity: minutes=1
+          access_token_validity: minutes=5
+          refresh_token_validity: days=30
+          refresh_token_threshold: hours=1
+          redirect_uris:
+            - matching_mode: strict
+              redirect_uri_type: authorization
+              url: https://grafana.${SECRET_DOMAIN}/login/generic_oauth
+          authorization_flow: !Find [authentik_flows.flow, [slug, default-provider-authorization-implicit-consent]]
+          invalidation_flow: !Find [authentik_flows.flow, [slug, default-provider-invalidation-flow]]
+          signing_key: !Find [authentik_crypto.certificatekeypair, [name, "authentik Self-signed Certificate"]]
+          property_mappings:
+            - !Find [authentik_providers_oauth2.scopemapping, [scope_name, openid]]
+            - !Find [authentik_providers_oauth2.scopemapping, [scope_name, email]]
+            - !Find [authentik_providers_oauth2.scopemapping, [scope_name, profile]]
+      - model: authentik_core.application
+        state: present
+        identifiers:
+          slug: grafana
+        attrs:
+          name: Grafana
+          meta_icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/svg/grafana.svg
+          policy_engine_mode: any
+          open_in_new_tab: false
+          provider: !Find [authentik_providers_oauth2.oauth2provider, [name, Provider for Grafana (OIDC)]]
+      - model: authentik_policies.policybinding
+        state: present
+        identifiers:
+          target: !Find [authentik_core.application, [slug, grafana]]
+          group: !Find [authentik_core.group, [name, ${SECRET_AK_GROUP_ADMIN}]]
+        attrs:
+          order: 0
+          enabled: true
+          negate: false
+          timeout: 30
+
+      # --- Flux Operator web UI --- native OIDC. The UI acts as the user's
+      # groups from the profile scope (prefixed authentik:), bound to the
+      # read-only flux-web-user role in flux-system/flux-operator/web.
+      - model: authentik_providers_oauth2.oauth2provider
+        state: present
+        identifiers:
+          name: Provider for Flux Operator (OIDC)
+        attrs:
+          client_type: confidential
+          grant_types:
+            - authorization_code
+            - refresh_token
+          client_id: 0WYWQsbDngJDKaKI0BwRdhIzPM2kz6SiwQZVueji
+          issuer_mode: per_provider
+          sub_mode: hashed_user_id
+          include_claims_in_id_token: true
+          access_code_validity: minutes=1
+          access_token_validity: minutes=5
+          refresh_token_validity: days=30
+          refresh_token_threshold: hours=1
+          redirect_uris:
+            - matching_mode: strict
+              redirect_uri_type: authorization
+              url: https://flux-operator.${SECRET_DOMAIN}/oauth2/callback
+          authorization_flow: !Find [authentik_flows.flow, [slug, default-provider-authorization-implicit-consent]]
+          invalidation_flow: !Find [authentik_flows.flow, [slug, default-provider-invalidation-flow]]
+          signing_key: !Find [authentik_crypto.certificatekeypair, [name, "authentik Self-signed Certificate"]]
+          property_mappings:
+            - !Find [authentik_providers_oauth2.scopemapping, [scope_name, openid]]
+            - !Find [authentik_providers_oauth2.scopemapping, [scope_name, email]]
+            - !Find [authentik_providers_oauth2.scopemapping, [scope_name, profile]]
+            - !Find [authentik_providers_oauth2.scopemapping, [scope_name, offline_access]]
+      - model: authentik_core.application
+        state: present
+        identifiers:
+          slug: flux-operator
+        attrs:
+          name: Flux
+          meta_icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/svg/flux-cd.svg
+          policy_engine_mode: any
+          open_in_new_tab: false
+          provider: !Find [authentik_providers_oauth2.oauth2provider, [name, Provider for Flux Operator (OIDC)]]
+      - model: authentik_policies.policybinding
+        state: present
+        identifiers:
+          target: !Find [authentik_core.application, [slug, flux-operator]]
+          group: !Find [authentik_core.group, [name, ${SECRET_AK_GROUP_ADMIN}]]
+        attrs:
+          order: 0
+          enabled: true
+          negate: false
+          timeout: 30
+
+      # --- Immich --- native OIDC. Immich's own
+      # settings come from its config file (media/immich, IMMICH_CONFIG_FILE),
+      # which carries this client_id and the client secret from the `immich`
+      # 1Password item (OIDC_CLIENT_SECRET). The
+      # `immich` scope emits immich_role so Authentik's admin group = Immich
+      # admin (synced on every login). app.immich:///oauth-callback is the
+      # mobile app's custom-scheme redirect.
+      - model: authentik_providers_oauth2.scopemapping
+        state: present
+        identifiers:
+          name: Immich role
+        attrs:
+          scope_name: immich
+          description: Immich role (admin group is Immich admin)
+          expression: |
+            return {"immich_role": "admin" if ak_is_group_member(request.user, name="${SECRET_AK_GROUP_ADMIN}") else "user"}
+      - model: authentik_providers_oauth2.oauth2provider
+        state: present
+        identifiers:
+          name: Provider for Immich
+        attrs:
+          client_type: confidential
+          grant_types:
+            - authorization_code
+            - refresh_token
+          client_id: 80PGdiyQsdspDCCyiBaOHBcKJZWESHQasrco3KeR
+          issuer_mode: per_provider
+          sub_mode: hashed_user_id
+          include_claims_in_id_token: true
+          access_code_validity: minutes=1
+          access_token_validity: minutes=5
+          refresh_token_validity: days=30
+          refresh_token_threshold: hours=1
+          redirect_uris:
+            - matching_mode: strict
+              redirect_uri_type: authorization
+              url: https://${SECRET_HOST_IMMICH}.${SECRET_DOMAIN}/auth/login
+            - matching_mode: strict
+              redirect_uri_type: authorization
+              url: https://${SECRET_HOST_IMMICH}.${SECRET_DOMAIN}/user-settings
+            - matching_mode: strict
+              redirect_uri_type: authorization
+              url: app.immich:///oauth-callback
+          authorization_flow: !Find [authentik_flows.flow, [slug, default-provider-authorization-implicit-consent]]
+          invalidation_flow: !Find [authentik_flows.flow, [slug, default-provider-invalidation-flow]]
+          signing_key: !Find [authentik_crypto.certificatekeypair, [name, "authentik Self-signed Certificate"]]
+          property_mappings:
+            - !Find [authentik_providers_oauth2.scopemapping, [scope_name, openid]]
+            - !Find [authentik_providers_oauth2.scopemapping, [scope_name, email]]
+            - !Find [authentik_providers_oauth2.scopemapping, [scope_name, profile]]
+            - !Find [authentik_providers_oauth2.scopemapping, [name, Immich role]]
+      - model: authentik_core.application
+        state: present
+        identifiers:
+          slug: immich
+        attrs:
+          name: Immich
+          meta_icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/svg/immich.svg
+          policy_engine_mode: any
+          open_in_new_tab: false
+          meta_launch_url: https://${SECRET_HOST_IMMICH}.${SECRET_DOMAIN}/
+          provider: !Find [authentik_providers_oauth2.oauth2provider, [name, Provider for Immich]]
+      - model: authentik_policies.policybinding
+        state: present
+        identifiers:
+          target: !Find [authentik_core.application, [slug, immich]]
+          group: !Find [authentik_core.group, [name, ${SECRET_AK_GROUP_ADMIN}]]
+        attrs:
+          order: 0
+          enabled: true
+          negate: false
+          timeout: 30
+      - model: authentik_policies.policybinding
+        state: present
+        identifiers:
+          target: !Find [authentik_core.application, [slug, immich]]
+          group: !Find [authentik_core.group, [name, ${SECRET_AK_GROUP_USERS}]]
+        attrs:
+          order: 0
+          enabled: true
+          negate: false
+          timeout: 30
+
+      # --- Zulip --- native OIDC (Zulip's
+      # GenericOpenIdConnectBackend, settings in self-hosted/zulip). Zulip
+      # can't sync roles from OIDC (only SAML/LDAP), so group membership only
+      # grants login; Zulip roles are set in Zulip itself.
+      # Client secret generated by Authentik -> 1Password item `zulip`,
+      # field OIDC_CLIENT_SECRET.
+      #
+      # Zulip refuses logins unless the IdP asserts email_verified, and
+      # Authentik's default email mapping hardcodes it to False. So the
+      # provider swaps the default email mapping for this one, on its own
+      # `zulip` scope (Zulip requests it via SOCIAL_AUTH_OIDC_SCOPE). Its own
+      # scope_name so the other providers' `!Find [scope_name, email]` stay
+      # unambiguous. Asserting verified is safe only while users can't edit
+      # their own email (tenant default_user_change_email is False; emails
+      # are admin/invitation managed), otherwise a user could claim someone
+      # else's address and take over their Zulip account.
+      - model: authentik_providers_oauth2.scopemapping
+        state: present
+        identifiers:
+          name: Zulip email (verified)
+        attrs:
+          scope_name: zulip
+          description: Email address for Zulip (admin-managed, asserted verified)
+          expression: |
+            return {"email": request.user.email, "email_verified": True}
+      - model: authentik_providers_oauth2.oauth2provider
+        state: present
+        identifiers:
+          name: Provider for Zulip (OIDC)
+        attrs:
+          client_type: confidential
+          grant_types:
+            - authorization_code
+            - refresh_token
+          client_id: apDyJs7tIJUOfPprSIB9HQ6UIxhY9iI427k4Zn1c
+          issuer_mode: per_provider
+          sub_mode: hashed_user_id
+          include_claims_in_id_token: true
+          access_code_validity: minutes=1
+          access_token_validity: minutes=5
+          refresh_token_validity: days=30
+          refresh_token_threshold: hours=1
+          redirect_uris:
+            - matching_mode: strict
+              redirect_uri_type: authorization
+              url: https://${SECRET_HOST_ZULIP}.${SECRET_DOMAIN}/complete/oidc/
+          authorization_flow: !Find [authentik_flows.flow, [slug, default-provider-authorization-implicit-consent]]
+          invalidation_flow: !Find [authentik_flows.flow, [slug, default-provider-invalidation-flow]]
+          signing_key: !Find [authentik_crypto.certificatekeypair, [name, "authentik Self-signed Certificate"]]
+          property_mappings:
+            - !Find [authentik_providers_oauth2.scopemapping, [scope_name, openid]]
+            - !Find [authentik_providers_oauth2.scopemapping, [name, Zulip email (verified)]]
+            - !Find [authentik_providers_oauth2.scopemapping, [scope_name, profile]]
+      - model: authentik_core.application
+        state: present
+        identifiers:
+          slug: zulip
+        attrs:
+          name: Zulip
+          meta_icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/svg/zulip.svg
+          policy_engine_mode: any
+          open_in_new_tab: false
+          meta_launch_url: https://${SECRET_HOST_ZULIP}.${SECRET_DOMAIN}/
+          provider: !Find [authentik_providers_oauth2.oauth2provider, [name, Provider for Zulip (OIDC)]]
+      - model: authentik_policies.policybinding
+        state: present
+        identifiers:
+          target: !Find [authentik_core.application, [slug, zulip]]
+          group: !Find [authentik_core.group, [name, ${SECRET_AK_GROUP_ZULIP_USERS}]]
+        attrs:
+          order: 0
+          enabled: true
+          negate: false
+          timeout: 30
+      - model: authentik_policies.policybinding
+        state: present
+        identifiers:
+          target: !Find [authentik_core.application, [slug, zulip]]
+          group: !Find [authentik_core.group, [name, ${SECRET_AK_GROUP_ZULIP_ADMIN}]]
+        attrs:
+          order: 0
+          enabled: true
+          negate: false
+          timeout: 30
+      # Donetick: users are created on first login and matched by email.
+      # Role comes from the `groups` claim (profile scope) on every login
+      # (admin group -> circle admin, users group -> member). The second
+      # redirect URI is the Android/iOS app's callback.
+      - model: authentik_providers_oauth2.oauth2provider
+        state: present
+        identifiers:
+          name: Provider for Donetick
+        attrs:
+          client_type: confidential
+          grant_types:
+            - authorization_code
+            - refresh_token
+          client_id: GnSnwCkvHeG5TsNtyy6n8FSn27QK8PfrxO0r8l8W
+          issuer_mode: per_provider
+          sub_mode: hashed_user_id
+          include_claims_in_id_token: true
+          access_code_validity: minutes=1
+          access_token_validity: minutes=5
+          refresh_token_validity: days=30
+          refresh_token_threshold: hours=1
+          redirect_uris:
+            - matching_mode: strict
+              redirect_uri_type: authorization
+              url: https://${SECRET_HOST_DONETICK}.${SECRET_DOMAIN}/auth/oauth2
+            - matching_mode: strict
+              redirect_uri_type: authorization
+              url: donetick://auth/oauth2
+          authorization_flow: !Find [authentik_flows.flow, [slug, default-provider-authorization-implicit-consent]]
+          invalidation_flow: !Find [authentik_flows.flow, [slug, default-provider-invalidation-flow]]
+          signing_key: !Find [authentik_crypto.certificatekeypair, [name, "authentik Self-signed Certificate"]]
+          property_mappings:
+            - !Find [authentik_providers_oauth2.scopemapping, [scope_name, openid]]
+            - !Find [authentik_providers_oauth2.scopemapping, [scope_name, email]]
+            - !Find [authentik_providers_oauth2.scopemapping, [scope_name, profile]]
+      - model: authentik_core.application
+        state: present
+        identifiers:
+          slug: donetick
+        attrs:
+          name: Donetick
+          meta_icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/svg/donetick.svg
+          policy_engine_mode: any
+          open_in_new_tab: false
+          meta_launch_url: https://${SECRET_HOST_DONETICK}.${SECRET_DOMAIN}/
+          provider: !Find [authentik_providers_oauth2.oauth2provider, [name, Provider for Donetick]]
+      - model: authentik_policies.policybinding
+        state: present
+        identifiers:
+          target: !Find [authentik_core.application, [slug, donetick]]
+          group: !Find [authentik_core.group, [name, ${SECRET_AK_GROUP_DONETICK_USERS}]]
+        attrs:
+          order: 0
+          enabled: true
+          negate: false
+          timeout: 30
+      - model: authentik_policies.policybinding
+        state: present
+        identifiers:
+          target: !Find [authentik_core.application, [slug, donetick]]
+          group: !Find [authentik_core.group, [name, ${SECRET_AK_GROUP_DONETICK_ADMIN}]]
+        attrs:
+          order: 0
+          enabled: true
+          negate: false
+          timeout: 30
+  cac-bookmark-apps.yaml: |
+    ---
+    # Dashboard tiles for apps that keep their own login. An application
+    # with no provider is a bookmark: Authentik only shows the tile and
+    # opens the launch URL. The bindings decide who sees it.
+    version: 1
+    metadata:
+      name: cac-bookmark applications
+    entries:
+      - model: authentik_core.application
+        state: present
+        identifiers:
+          slug: plex
+        attrs:
+          name: Plex
+          meta_launch_url: https://plex.${SECRET_DOMAIN}/web
+          meta_icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/svg/plex.svg
+          policy_engine_mode: any
+          open_in_new_tab: true
+      - model: authentik_policies.policybinding
+        state: present
+        identifiers:
+          target: !Find [authentik_core.application, [slug, plex]]
+          group: !Find [authentik_core.group, [name, ${SECRET_AK_GROUP_ADMIN}]]
+        attrs:
+          order: 0
+          enabled: true
+          negate: false
+          timeout: 30
+      - model: authentik_policies.policybinding
+        state: present
+        identifiers:
+          target: !Find [authentik_core.application, [slug, plex]]
+          group: !Find [authentik_core.group, [name, ${SECRET_AK_GROUP_USERS}]]
+        attrs:
+          order: 0
+          enabled: true
+          negate: false
+          timeout: 30
+      - model: authentik_core.application
+        state: present
+        identifiers:
+          slug: seerr
+        attrs:
+          name: Seerr
+          meta_launch_url: https://${SECRET_HOST_SEERR}.${SECRET_DOMAIN}
+          meta_icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/svg/seerr.svg
+          policy_engine_mode: any
+          open_in_new_tab: true
+      - model: authentik_policies.policybinding
+        state: present
+        identifiers:
+          target: !Find [authentik_core.application, [slug, seerr]]
+          group: !Find [authentik_core.group, [name, ${SECRET_AK_GROUP_ADMIN}]]
+        attrs:
+          order: 0
+          enabled: true
+          negate: false
+          timeout: 30
+      - model: authentik_policies.policybinding
+        state: present
+        identifiers:
+          target: !Find [authentik_core.application, [slug, seerr]]
+          group: !Find [authentik_core.group, [name, ${SECRET_AK_GROUP_USERS}]]
+        attrs:
+          order: 0
+          enabled: true
+          negate: false
+          timeout: 30
+      # Cluster apps.
+      - model: authentik_core.application
+        state: present
+        identifiers:
+          slug: home-assistant
+        attrs:
+          name: Home Assistant
+          meta_launch_url: https://${SECRET_HOST_HOME_ASSISTANT_PI}.${SECRET_DOMAIN}
+          meta_icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/svg/home-assistant.svg
+          policy_engine_mode: any
+          open_in_new_tab: true
+      - model: authentik_policies.policybinding
+        state: present
+        identifiers:
+          target: !Find [authentik_core.application, [slug, home-assistant]]
+          group: !Find [authentik_core.group, [name, ${SECRET_AK_GROUP_ADMIN}]]
+        attrs:
+          order: 0
+          enabled: true
+          negate: false
+          timeout: 30
+      - model: authentik_policies.policybinding
+        state: present
+        identifiers:
+          target: !Find [authentik_core.application, [slug, home-assistant]]
+          group: !Find [authentik_core.group, [name, ${SECRET_AK_GROUP_USERS}]]
+        attrs:
+          order: 0
+          enabled: true
+          negate: false
+          timeout: 30
+      # Actual was removed from the cluster; this deletes its tile (the
+      # application's bindings go with it). Drop the entry once applied.
+      - model: authentik_core.application
+        state: absent
+        identifiers:
+          slug: actual
+      - model: authentik_core.application
+        state: present
+        identifiers:
+          slug: qbittorrent
+        attrs:
+          name: qBittorrent
+          meta_launch_url: https://${SECRET_HOST_QBITTORRENT}.${SECRET_DOMAIN}
+          meta_icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/svg/qbittorrent.svg
+          policy_engine_mode: any
+          open_in_new_tab: true
+      - model: authentik_policies.policybinding
+        state: present
+        identifiers:
+          target: !Find [authentik_core.application, [slug, qbittorrent]]
+          group: !Find [authentik_core.group, [name, ${SECRET_AK_GROUP_ADMIN}]]
+        attrs:
+          order: 0
+          enabled: true
+          negate: false
+          timeout: 30
+      - model: authentik_core.application
+        state: present
+        identifiers:
+          slug: minio
+        attrs:
+          name: MinIO Console
+          meta_launch_url: https://minio.${SECRET_DOMAIN}
+          meta_icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/svg/minio.svg
+          policy_engine_mode: any
+          open_in_new_tab: true
+      - model: authentik_policies.policybinding
+        state: present
+        identifiers:
+          target: !Find [authentik_core.application, [slug, minio]]
+          group: !Find [authentik_core.group, [name, ${SECRET_AK_GROUP_ADMIN}]]
+        attrs:
+          order: 0
+          enabled: true
+          negate: false
+          timeout: 30
+      # Devices outside the cluster.
+      - model: authentik_core.application
+        state: present
+        identifiers:
+          slug: truenas
+        attrs:
+          name: TrueNAS
+          meta_launch_url: https://${SECRET_NAS_HOST}
+          meta_icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/svg/truenas.svg
+          policy_engine_mode: any
+          open_in_new_tab: true
+      - model: authentik_policies.policybinding
+        state: present
+        identifiers:
+          target: !Find [authentik_core.application, [slug, truenas]]
+          group: !Find [authentik_core.group, [name, ${SECRET_AK_GROUP_ADMIN}]]
+        attrs:
+          order: 0
+          enabled: true
+          negate: false
+          timeout: 30
+      - model: authentik_core.application
+        state: present
+        identifiers:
+          slug: unifi
+        attrs:
+          name: UniFi
+          meta_launch_url: https://unifi.ui.com
+          meta_icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/svg/unifi.svg
+          policy_engine_mode: any
+          open_in_new_tab: true
+      - model: authentik_policies.policybinding
+        state: present
+        identifiers:
+          target: !Find [authentik_core.application, [slug, unifi]]
+          group: !Find [authentik_core.group, [name, ${SECRET_AK_GROUP_ADMIN}]]
+        attrs:
+          order: 0
+          enabled: true
+          negate: false
+          timeout: 30
+  cac-password-policy.yaml: |
+    ---
+    # One password policy for the prompts where users choose a password
+    # (invitation enrollment, recovery). Authentik's own
+    # default-password-change prompt keeps its bundled policy: its default
+    # blueprint sets that prompt's policy list and would revert a change.
+    version: 1
+    metadata:
+      name: cac-password-policy
+    entries:
+      - model: authentik_policies_password.passwordpolicy
+        id: password-policy
+        state: present
+        identifiers:
+          name: cac-password-policy
+        attrs:
+          password_field: password
+          check_static_rules: true
+          length_min: 12
+          amount_uppercase: 0
+          amount_lowercase: 0
+          amount_digits: 0
+          amount_symbols: 0
+          check_zxcvbn: true
+          zxcvbn_score_threshold: 3
+          # k-anonymity range query: only a hash prefix leaves the cluster.
+          check_have_i_been_pwned: true
+          hibp_allowed_count: 0
+          error_message: Use at least 12 characters, not a common or previously breached password.
+      - model: authentik_stages_prompt.promptstage
+        state: present
+        identifiers:
+          name: default-enrollment-prompt-first
+        attrs:
+          validation_policies:
+            - !KeyOf password-policy
+      - model: authentik_stages_prompt.promptstage
+        state: present
+        identifiers:
+          name: Change your password
+        attrs:
+          validation_policies:
+            - !KeyOf password-policy
+  cac-session-binding.yaml: |
+    ---
+    # Bind sessions to the continent they were created in. Authentik also
+    # breaks the binding when either address has no GeoIP data (private
+    # networks), so moving between the LAN and outside means signing in
+    # to Authentik again; app sessions are unaffected.
+    version: 1
+    metadata:
+      name: cac-session-binding
+    entries:
+      - model: authentik_stages_user_login.userloginstage
+        state: present
+        identifiers:
+          name: default-authentication-login
+        attrs:
+          geoip_binding: bind_continent
+      - model: authentik_stages_user_login.userloginstage
+        state: present
+        identifiers:
+          name: default-recovery-user-login
+        attrs:
+          geoip_binding: bind_continent
+      - model: authentik_stages_user_login.userloginstage
+        state: present
+        identifiers:
+          name: default-enrollment-user-login
+        attrs:
+          geoip_binding: bind_continent
+      - model: authentik_stages_user_login.userloginstage
+        state: present
+        identifiers:
+          name: default-source-authentication-login
+        attrs:
+          geoip_binding: bind_continent
+      - model: authentik_stages_user_login.userloginstage
+        state: present
+        identifiers:
+          name: default-source-enrollment-login
+        attrs:
+          geoip_binding: bind_continent
+  cac-notifications.yaml: |
+    ---
+    # Security notifications to the admin group, through Authentik's
+    # existing email and in-app transports. Group events come only from
+    # admin UI/API changes; blueprint applies don't emit them.
+    version: 1
+    metadata:
+      name: cac-notifications
+    entries:
+      - model: authentik_events.notificationrule
+        id: security-rule
+        state: present
+        identifiers:
+          name: cac-notify-security-events
+        attrs:
+          severity: alert
+          destination_group: !Find [authentik_core.group, [name, ${SECRET_AK_GROUP_ADMIN}]]
+          transports:
+            - !Find [authentik_events.notificationtransport, [name, default-email-transport]]
+            - !Find [authentik_events.notificationtransport, [name, default-local-transport]]
+          policy_engine_mode: any
+      - model: authentik_policies_event_matcher.eventmatcherpolicy
+        id: suspicious-request
+        state: present
+        identifiers:
+          name: cac-match-suspicious-request
+        attrs:
+          action: suspicious_request
+      - model: authentik_policies.policybinding
+        state: present
+        identifiers:
+          target: !KeyOf security-rule
+          policy: !KeyOf suspicious-request
+        attrs:
+          order: 0
+          enabled: true
+          negate: false
+          timeout: 30
+      - model: authentik_policies_event_matcher.eventmatcherpolicy
+        id: impersonation
+        state: present
+        identifiers:
+          name: cac-match-impersonation-started
+        attrs:
+          action: impersonation_started
+      - model: authentik_policies.policybinding
+        state: present
+        identifiers:
+          target: !KeyOf security-rule
+          policy: !KeyOf impersonation
+        attrs:
+          order: 1
+          enabled: true
+          negate: false
+          timeout: 30
+      - model: authentik_policies_event_matcher.eventmatcherpolicy
+        id: group-created
+        state: present
+        identifiers:
+          name: cac-match-group-created
+        attrs:
+          action: model_created
+          model: authentik_core.group
+      - model: authentik_policies.policybinding
+        state: present
+        identifiers:
+          target: !KeyOf security-rule
+          policy: !KeyOf group-created
+        attrs:
+          order: 2
+          enabled: true
+          negate: false
+          timeout: 30
+      - model: authentik_policies_event_matcher.eventmatcherpolicy
+        id: group-updated
+        state: present
+        identifiers:
+          name: cac-match-group-updated
+        attrs:
+          action: model_updated
+          model: authentik_core.group
+      - model: authentik_policies.policybinding
+        state: present
+        identifiers:
+          target: !KeyOf security-rule
+          policy: !KeyOf group-updated
+        attrs:
+          order: 3
+          enabled: true
+          negate: false
+          timeout: 30
+      - model: authentik_policies_event_matcher.eventmatcherpolicy
+        id: group-deleted
+        state: present
+        identifiers:
+          name: cac-match-group-deleted
+        attrs:
+          action: model_deleted
+          model: authentik_core.group
+      - model: authentik_policies.policybinding
+        state: present
+        identifiers:
+          target: !KeyOf security-rule
+          policy: !KeyOf group-deleted
+        attrs:
+          order: 4
+          enabled: true
+          negate: false
+          timeout: 30
+  cac-enrollment-flow.yaml: |
+    ---
+    version: 1
+    metadata:
+      name: cac-enrollment flow (invitation-only)
+    entries:
+      - model: authentik_stages_invitation.invitationstage
+        id: invite-stage
+        state: present
+        identifiers:
+          name: invite
+        attrs:
+          continue_flow_without_invitation: false
+      - model: authentik_flows.flow
+        id: enrollment-flow
+        state: present
+        identifiers:
+          slug: default-enrollment-flow
+        attrs:
+          name: Email Enrollment with Email Verify
+          title: You have be selected to join Section 31
+          designation: enrollment
+          authentication: require_unauthenticated
+          layout: stacked
+          policy_engine_mode: any
+          denied_action: message_continue
+      - model: authentik_flows.flowstagebinding
+        state: present
+        identifiers:
+          target: !KeyOf enrollment-flow
+          stage: !KeyOf invite-stage
+          order: 0
+        attrs:
+          evaluate_on_plan: false
+          re_evaluate_policies: true
+          invalid_response_action: retry
+          policy_engine_mode: any
+      - model: authentik_flows.flowstagebinding
+        state: present
+        identifiers:
+          target: !KeyOf enrollment-flow
+          stage: !Find [authentik_stages_prompt.promptstage, [name, default-enrollment-prompt-first]]
+          order: 10
+        attrs:
+          evaluate_on_plan: false
+          re_evaluate_policies: true
+          invalid_response_action: retry
+          policy_engine_mode: any
+      - model: authentik_flows.flowstagebinding
+        state: present
+        identifiers:
+          target: !KeyOf enrollment-flow
+          stage: !Find [authentik_stages_prompt.promptstage, [name, default-enrollment-prompt-second]]
+          order: 11
+        attrs:
+          evaluate_on_plan: false
+          re_evaluate_policies: true
+          invalid_response_action: retry
+          policy_engine_mode: any
+      - model: authentik_flows.flowstagebinding
+        id: user-write-binding
+        state: present
+        identifiers:
+          target: !KeyOf enrollment-flow
+          stage: !Find [authentik_stages_user_write.userwritestage, [name, default-enrollment-user-write]]
+          order: 20
+        attrs:
+          # Policies here must run when the stage runs (after the invitation
+          # has filled prompt_data), not when the flow is planned.
+          evaluate_on_plan: false
+          re_evaluate_policies: true
+          invalid_response_action: retry
+          policy_engine_mode: any
+      - model: authentik_flows.flowstagebinding
+        state: present
+        identifiers:
+          target: !KeyOf enrollment-flow
+          stage: !Find [authentik_stages_email.emailstage, [name, default-enrollment-email-verification]]
+          order: 30
+        attrs:
+          evaluate_on_plan: false
+          re_evaluate_policies: true
+          invalid_response_action: retry
+          policy_engine_mode: any
+      - model: authentik_flows.flowstagebinding
+        state: present
+        identifiers:
+          target: !KeyOf enrollment-flow
+          stage: !Find [authentik_stages_user_login.userloginstage, [name, default-enrollment-user-login]]
+          order: 100
+        attrs:
+          evaluate_on_plan: false
+          re_evaluate_policies: true
+          invalid_response_action: retry
+          policy_engine_mode: any
+      - model: authentik_policies_expression.expressionpolicy
+        id: invitation-groups-policy
+        state: present
+        identifiers:
+          name: Invitation groups
+        attrs:
+          execution_logging: false
+          expression: |
+            from authentik.core.models import Group
+
+            # Never grant these through an invitation.
+            deny = {"${SECRET_AK_GROUP_ADMIN}", "${SECRET_AK_GROUP_MFA_EXEMPT}"}
+
+            names = request.context.get("prompt_data", {}).get("groups_to_add") or []
+            if isinstance(names, str):
+                names = [names]
+            groups = [
+                g for g in Group.objects.filter(name__in=names)
+                if not g.is_superuser and g.name not in deny
+            ]
+            skipped = sorted(set(names) - {g.name for g in groups})
+            if skipped:
+                ak_logger.warning("invitation groups skipped", skipped=skipped)
+            plan = request.context["flow_plan"]
+            plan.context["groups"] = list(plan.context.get("groups", [])) + groups
+            return True
+      - model: authentik_policies.policybinding
+        state: present
+        identifiers:
+          target: !KeyOf user-write-binding
+          policy: !KeyOf invitation-groups-policy
+        attrs:
+          order: 0
+          enabled: true
+          negate: false
+          timeout: 30
+  cac-login-hardening.yaml: |
+    ---
+    # Two additions to the default login and recovery flows:
+    # - Recovery runs the same MFA validation as login before the new
+    #   password is set. Without it, access to the mailbox alone gives a
+    #   full session. The MFA exemption policy applies here too.
+    # - A reputation policy denies both flows to a client IP whose score
+    #   has reached the lower limit (repeated failed logins). Reputation
+    #   policies pass when the score is at or below the threshold, so the
+    #   binding is negated. It is bound to the flow, not a stage: a failed
+    #   stage binding skips that stage instead of denying.
+    # The flow targets use Find on policybindingmodel: a policy binding points
+    # at the flow's policybindingmodel row, whose primary key differs from the
+    # flow's, so a Find on the flow never matches the existing binding.
+    version: 1
+    metadata:
+      name: cac-login hardening
+    entries:
+      - model: authentik_flows.flowstagebinding
+        id: recovery-mfa-binding
+        state: present
+        identifiers:
+          target: !Find [authentik_flows.flow, [slug, default-recovery-flow]]
+          stage: !Find [authentik_stages_authenticator_validate.authenticatorvalidatestage, [name, default-authentication-mfa-validation]]
+          order: 25
+        attrs:
+          evaluate_on_plan: false
+          re_evaluate_policies: true
+          policy_engine_mode: all
+          invalid_response_action: retry
+      - model: authentik_policies.policybinding
+        state: present
+        identifiers:
+          target: !KeyOf recovery-mfa-binding
+          policy: !Find [authentik_policies_expression.expressionpolicy, [name, MFA exemption]]
+        attrs:
+          order: 20
+          enabled: true
+          negate: false
+          timeout: 30
+      - model: authentik_policies_reputation.reputationpolicy
+        id: reputation-policy
+        state: present
+        identifiers:
+          name: Low reputation
+        attrs:
+          execution_logging: false
+          check_ip: true
+          check_username: false
+          threshold: -5
+      - model: authentik_policies.policybinding
+        state: present
+        identifiers:
+          target: !Find [authentik_policies.policybindingmodel, [flow__slug, default-authentication-flow]]
+          policy: !KeyOf reputation-policy
+        attrs:
+          order: 0
+          enabled: true
+          negate: true
+          timeout: 30
+      - model: authentik_policies.policybinding
+        state: present
+        identifiers:
+          target: !Find [authentik_policies.policybindingmodel, [flow__slug, default-recovery-flow]]
+          policy: !KeyOf reputation-policy
+        attrs:
+          order: 0
+          enabled: true
+          negate: true
+          timeout: 30
+      # The user settings flow lets a user change their own email. Apps
+      # that match accounts by email would then let one user take over
+      # another's account, so only admins may run it.
+      - model: authentik_policies.policybinding
+        state: present
+        identifiers:
+          target: !Find [authentik_policies.policybindingmodel, [flow__slug, default-user-settings-flow]]
+          group: !Find [authentik_core.group, [name, ${SECRET_AK_GROUP_ADMIN}]]
+        attrs:
+          order: 0
+          enabled: true
+          negate: false
+          timeout: 30

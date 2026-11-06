@@ -1,0 +1,18 @@
+---
+# Zulip's image runs executables in /data/post-setup.d/ after setup on every
+# boot. Its daily auto-backup (AUTO_BACKUP_ENABLED) keeps every pg_dump in
+# /data/backups forever, so this adds a cron job that keeps a week.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: zulip-post-setup
+data:
+  10-prune-backups.sh: |
+    #!/bin/bash
+    set -eu
+    printf '%s\n' \
+      'MAILTO=""' \
+      '15 5 * * * root find /data/backups -mindepth 1 -maxdepth 1 -mtime +7 -exec rm -rf {} +' \
+      > /etc/cron.d/zulip-prune-backups
+    chmod 0644 /etc/cron.d/zulip-prune-backups
+    echo "Installed /etc/cron.d/zulip-prune-backups"

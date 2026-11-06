@@ -1,0 +1,77 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/bjw-s-labs/helm-charts/main/charts/other/app-template/schemas/helmrelease-helm-v2.schema.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: &app gitea-runner
+spec:
+  interval: 30m
+  chartRef:
+    kind: OCIRepository
+    name: gitea-runner
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    cleanupOnFail: true
+    remediation:
+      strategy: rollback
+      retries: 3
+  values:
+    controllers:
+      gitea-runner:
+        annotations:
+          reloader.stakater.com/auto: "true"
+        containers:
+          # Talos nodes run containerd, not Docker - there's no host socket
+          # to mount, so a privileged docker:dind sidecar sharing a socket
+          # via an emptyDir is the standard/well-documented way to give
+          # act_runner a Docker executor in-cluster.
+          runner:
+            image:
+              repository: gitea/act_runner
+              tag: "0.6.1"
+            envFrom:
+              - secretRef:
+                  name: gitea-runner-credentials
+            env:
+              DOCKER_HOST: unix:///var/run/docker.sock
+
+            resources:
+              requests:
+                cpu: 100m
+                memory: 256Mi
+              limits:
+                memory: 1Gi
+          dind:
+            image:
+              repository: docker
+              tag: 27-dind
+            securityContext:
+              privileged: true
+            env:
+              # Disables dind's default TLS-on-2376 setup - the shared
+              # emptyDir'd unix socket over the pod's own network namespace
+              # is already private to this pod, no need for the cert
+              # machinery on top.
+              DOCKER_TLS_CERTDIR: ""
+            resources:
+              requests:
+                cpu: 250m
+                memory: 512Mi
+              limits:
+                memory: 4Gi
+    persistence:
+      docker-sock:
+        type: emptyDir
+        globalMounts:
+          - path: /var/run
+      # act_runner writes its registration state (the UUID it gets back at
+      # first registration) under /data/.runner - without persisting it,
+      # every pod restart would silently register as a brand-new runner
+      # and leave the old UUID as a dead/offline entry in Gitea's runner
+      # list instead of resuming the same one.
+      data:
+        existingClaim: gitea-runner-data
+        globalMounts:
+          - path: /data

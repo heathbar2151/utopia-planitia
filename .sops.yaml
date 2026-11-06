@@ -1,0 +1,18 @@
+---
+creation_rules:
+  # topf config: encrypt the LAN addressing (endpoint, node
+  # ip/data, shared data block); versions stay plaintext so Renovate can bump them.
+  - path_regex: talos/topf\.yaml$
+    encrypted_regex: "^(clusterEndpoint|ip|data)$"
+    mac_only_encrypted: true
+    age: "age1trsqyxl0g743l2tptfef3rcf2su6jz0f9meyp467vz8l29czus9qtrdp9p"
+  - path_regex: talos/.*\.sops\.ya?ml
+    mac_only_encrypted: true
+    age: "age1trsqyxl0g743l2tptfef3rcf2su6jz0f9meyp467vz8l29czus9qtrdp9p"
+  - path_regex: (bootstrap|kubernetes)/.*\.sops\.ya?ml
+    encrypted_regex: "^(data|stringData)$"
+    mac_only_encrypted: true
+    age: "age1trsqyxl0g743l2tptfef3rcf2su6jz0f9meyp467vz8l29czus9qtrdp9p"
+stores:
+  yaml:
+    indent: 2

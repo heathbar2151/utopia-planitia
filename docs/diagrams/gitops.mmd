@@ -1,0 +1,53 @@
+flowchart TB
+  me(["Me"])
+  renovate(["Renovate"])
+
+  subgraph gh["GitHub"]
+    direction LR
+    pr["pull request"]
+    ci["checks<br/>flux-local, gitleaks"]
+    main["main branch"]
+  end
+
+  subgraph cluster["Kubernetes on Talos"]
+    direction LR
+    src["Flux<br/>GitRepository"]
+    root["cluster-apps<br/>Kustomization"]
+    appks["one Flux Kustomization<br/>per app"]
+    secrets["cluster-secrets<br/>SOPS-decrypted values"]
+    hr["HelmReleases<br/>bjw-s app-template"]
+    es["ExternalSecrets"]
+    work["workloads"]
+    tuppr["tuppr<br/>Talos + Kubernetes upgrades"]
+  end
+
+  op[("1Password<br/>via Connect")]
+  nodes["Talos nodes"]
+
+  me --> pr
+  renovate -- "dependency updates" --> pr
+  pr --> ci
+  ci -- "merge" --> main
+  main -- "pull" --> src
+  src --> root
+  root --> appks
+  secrets -- "postBuild substitution" --> appks
+  appks --> hr
+  appks --> es
+  op -- "credentials" --> es
+  es -- "Secrets" --> work
+  hr --> work
+  appks -- "TalosUpgrade,<br/>KubernetesUpgrade" --> tuppr
+  tuppr -- "rolling, health-gated" --> nodes
+  me -. "machine configs<br/>topf apply" .-> nodes
+
+  classDef extNode fill:#3b1f4a,stroke:#c084fc,color:#e5e7eb
+  classDef clusterNode fill:#1e3a5f,stroke:#60a5fa,color:#e5e7eb
+  classDef fluxNode fill:#134e4a,stroke:#2dd4bf,color:#e5e7eb
+  classDef personNode fill:#14532d,stroke:#4ade80,color:#e5e7eb
+  class pr,ci,main,op extNode
+  class hr,es,work,tuppr,nodes clusterNode
+  class src,root,appks,secrets fluxNode
+  class me,renovate personNode
+  style gh fill:#1f1027,stroke:#c084fc,color:#d8b4fe
+  style cluster fill:#0f1d2e,stroke:#60a5fa,color:#93c5fd

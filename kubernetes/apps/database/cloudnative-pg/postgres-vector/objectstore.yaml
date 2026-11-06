@@ -1,0 +1,24 @@
+---
+# Backup target for postgres-vector, kept apart from other clusters'
+# backups by the serverName plugin parameter on the Cluster.
+apiVersion: barmancloud.cnpg.io/v1
+kind: ObjectStore
+metadata:
+  name: postgres-vector
+spec:
+  retentionPolicy: 30d
+  configuration:
+    destinationPath: s3://cloudnative-pg/
+    endpointURL: http://minio.self-hosted.svc.cluster.local:9000
+    s3Credentials:
+      accessKeyId:
+        name: cloudnative-pg-secret
+        key: s3-access-key-id
+      secretAccessKey:
+        name: cloudnative-pg-secret
+        key: s3-secret-access-key
+    data:
+      compression: bzip2
+    wal:
+      compression: bzip2
+      maxParallel: 8

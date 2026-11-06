@@ -1,0 +1,15 @@
+---
+# yaml-language-server: $schema=https://json.schemastore.org/kustomization
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: self-hosted
+components:
+  - ../../components/common
+resources:
+  - ./minio/ks.yaml
+  - ./staying-fit-1/ks.yaml
+  - ./staying-fit-2/ks.yaml
+  - ./staying-fit-3/ks.yaml
+  - ./staying-fit-4/ks.yaml
+  - ./zulip/ks.yaml
+  - ./donetick/ks.yaml

@@ -1,0 +1,50 @@
+---
+# yaml-language-server: $schema=https://k8s-schemas.home-operations.com/gateway.envoyproxy.io/securitypolicy_v1alpha1.json
+# Authentik login in front of the Prometheus web UI.
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: SecurityPolicy
+metadata:
+  name: prometheus-oidc
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: kube-prometheus-stack-prometheus
+  oidc:
+    provider:
+      issuer: https://${SECRET_HOST_AUTHENTIK}.${SECRET_DOMAIN}/application/o/prometheus/
+    clientIDRef:
+      group: ""
+      kind: Secret
+      name: prometheus-oidc
+    clientSecret:
+      group: ""
+      kind: Secret
+      name: prometheus-oidc
+    redirectURL: https://${SECRET_HOST_PROMETHEUS}.${SECRET_DOMAIN}/oauth2/callback
+    scopes: ["openid", "email", "profile"]
+---
+# yaml-language-server: $schema=https://k8s-schemas.home-operations.com/gateway.envoyproxy.io/securitypolicy_v1alpha1.json
+# Authentik login in front of the Alertmanager web UI.
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: SecurityPolicy
+metadata:
+  name: alertmanager-oidc
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: kube-prometheus-stack-alertmanager
+  oidc:
+    provider:
+      issuer: https://${SECRET_HOST_AUTHENTIK}.${SECRET_DOMAIN}/application/o/alertmanager/
+    clientIDRef:
+      group: ""
+      kind: Secret
+      name: alertmanager-oidc
+    clientSecret:
+      group: ""
+      kind: Secret
+      name: alertmanager-oidc
+    redirectURL: https://${SECRET_HOST_ALERTMANAGER}.${SECRET_DOMAIN}/oauth2/callback
+    scopes: ["openid", "email", "profile"]

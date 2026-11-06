@@ -1,0 +1,155 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/bjw-s-labs/helm-charts/main/charts/other/app-template/schemas/helmrelease-helm-v2.schema.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: gatus
+spec:
+  interval: 30m
+  chartRef:
+    kind: OCIRepository
+    name: gatus
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    cleanupOnFail: true
+    remediation:
+      strategy: rollback
+      retries: 3
+  values:
+    controllers:
+      gatus:
+        annotations:
+          reloader.stakater.com/auto: "true"
+        initContainers:
+          init-db:
+            image:
+              repository: ghcr.io/home-operations/postgres-init
+              tag: 18
+            env: &dbEnv
+              INIT_POSTGRES_DBNAME: gatus
+              INIT_POSTGRES_HOST: postgres16-rw.database.svc.cluster.local
+            envFrom:
+              - secretRef:
+                  name: gatus-secret
+              - secretRef:
+                  name: gatus-init-db
+          # home-operations/gatus-sidecar as a native sidecar. Its Helm
+          # chart requires Kubernetes
+          # >= 1.34 (pod-level resources), so it runs inside app-template
+          # here instead. Every HTTPRoute gets an endpoint automatically;
+          # per-route overrides are gatus.home-operations.com/endpoint
+          # annotations, with group defaults inherited from the Gateways.
+          # Writes /config/gatus-sidecar.yaml, which Gatus merges with
+          # config.yaml (GATUS_CONFIG_PATH is the directory).
+          gatus-sidecar:
+            dependsOn: init-db
+            image:
+              repository: ghcr.io/home-operations/gatus-sidecar
+              tag: 0.5.4
+            args:
+              - --output=/config/gatus-sidecar.yaml
+              - --default-interval=1m
+              - --enable-httproute
+              - --auto-httproute
+              - --enable-service
+            restartPolicy: Always
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities: { drop: ["ALL"] }
+            resources:
+              requests:
+                cpu: 10m
+              limits:
+                memory: 128Mi
+        containers:
+          app:
+            image:
+              repository: ghcr.io/twin/gatus
+              tag: v5.37.0@sha256:094eb186e55235db367e90e9d56140e5897b7044c41de23cde4cc18e6da1242e
+            env:
+              <<: *dbEnv
+              TZ: America/New_York
+              GATUS_CONFIG_PATH: /config
+              GATUS_DELAY_START_SECONDS: 5
+              GATUS_WEB_PORT: &port 80
+            envFrom:
+              - secretRef:
+                  name: gatus-secret
+            probes:
+              liveness: &probes
+                enabled: true
+                custom: true
+                spec:
+                  httpGet:
+                    path: /health
+                    port: *port
+                  initialDelaySeconds: 0
+                  periodSeconds: 10
+                  timeoutSeconds: 1
+                  failureThreshold: 3
+              readiness: *probes
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities: { drop: ["ALL"] }
+            resources:
+              requests:
+                cpu: 10m
+              limits:
+                memory: 256Mi
+    defaultPodOptions:
+      automountServiceAccountToken: true
+      dnsConfig:
+        options:
+          - { name: ndots, value: "1" }
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        fsGroup: 65534
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile: { type: RuntimeDefault }
+    service:
+      app:
+        controller: gatus
+        ports:
+          http:
+            port: *port
+    serviceMonitor:
+      app:
+        serviceName: gatus
+        endpoints:
+          - port: http
+            scheme: http
+            path: /metrics
+            interval: 1m
+            scrapeTimeout: 10s
+    route:
+      app:
+        annotations:
+          gatus.home-operations.com/enabled: "false"
+        hostnames: ["${SECRET_HOST_GATUS}.${SECRET_DOMAIN}"]
+        parentRefs:
+          - name: envoy-external
+            namespace: network
+        rules:
+          - backendRefs:
+              - identifier: app
+                port: 80
+    serviceAccount:
+      gatus: {}
+    persistence:
+      config:
+        type: emptyDir
+      config-file:
+        type: configMap
+        name: gatus-configmap
+        advancedMounts:
+          gatus:
+            app:
+              - path: /config/config.yaml
+                subPath: config.yaml
+                readOnly: true

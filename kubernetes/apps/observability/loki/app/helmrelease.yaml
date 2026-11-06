@@ -1,0 +1,117 @@
+---
+# yaml-language-server: $schema=https://kubernetes-schemas.pages.dev/helm.toolkit.fluxcd.io/helmrelease_v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: loki
+spec:
+  interval: 30m
+  timeout: 15m
+  chart:
+    spec:
+      chart: loki
+      version: 19.0.3
+      sourceRef:
+        kind: HelmRepository
+        # grafana/loki is Grafana Enterprise Logs only from 7.0; the OSS
+        # chart continues here (forked at 6.55.0, renumbered).
+        name: grafana-community
+        namespace: flux-system
+  install:
+    crds: Skip
+    remediation:
+      retries: 3
+  upgrade:
+    cleanupOnFail: true
+    crds: Skip
+    remediation:
+      strategy: rollback
+      retries: 3
+  values:
+    deploymentMode: Monolithic
+    loki:
+      auth_enabled: false
+      analytics:
+        reporting_enabled: false
+      server:
+        log_level: info
+      commonConfig:
+        replication_factor: 1
+      compactor:
+        working_directory: /var/loki/compactor/retention
+        delete_request_store: filesystem
+        retention_enabled: true
+      ingester:
+        chunk_encoding: snappy
+      # Evaluate the LogQL alert rules that apps ship as ConfigMaps labelled
+      # loki_rule (see sidecar.rules below) and send them to Alertmanager.
+      # The sidecar writes into /rules/fake: with auth disabled every rule
+      # belongs to the "fake" tenant, and the ruler reads <directory>/<tenant>.
+      rulerConfig:
+        alertmanager_url: http://alertmanager-operated.observability.svc.cluster.local:9093
+        enable_api: true
+        wal:
+          dir: /var/loki/ruler-wal
+        storage:
+          type: local
+          local:
+            directory: /rules
+      limits_config:
+        retention_period: 3d
+        # Index the node name too (on top of Loki's defaults: service_name,
+        # k8s_namespace_name, k8s_pod_name, ...), so Talos host logs and pod
+        # logs can be filtered per node. One value per node, so cheap.
+        otlp_config:
+          resource_attributes:
+            attributes_config:
+              - action: index_label
+                attributes:
+                  - k8s.node.name
+      storage:
+        type: filesystem
+      schemaConfig:
+        configs:
+          - from: "2024-04-01" # quote
+            store: tsdb
+            object_store: filesystem
+            schema: v13
+            index:
+              prefix: loki_index_
+              period: 24h
+    singleBinary:
+      replicas: 1
+      persistence:
+        enabled: true
+        storageClass: ceph-block
+        # Must match the live StatefulSet's volumeClaimTemplate.
+        # volumeClaimTemplates are immutable, so any other value makes
+        # every Helm upgrade fail with "updates to statefulset spec ... are
+        # forbidden". Grow it by expanding the PVC and re-creating the StatefulSet with
+        # --cascade=orphan, not by editing this alone.
+        size: 50Gi
+    gateway:
+      replicas: 0
+    backend:
+      replicas: 0
+    read:
+      replicas: 0
+    write:
+      replicas: 0
+    chunksCache:
+      enabled: false
+    resultsCache:
+      enabled: false
+    # Scrape Loki's own metrics.
+    monitoring:
+      serviceMonitor:
+        enabled: true
+    lokiCanary:
+      enabled: false
+    test:
+      enabled: false
+    sidecar:
+      rules:
+        # Rule ConfigMaps live with their apps, not in
+        # observability - the default only watched Loki's own namespace.
+        searchNamespace: ALL
+        folder: /rules/fake

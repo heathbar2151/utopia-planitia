@@ -1,0 +1,164 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/bjw-s-labs/helm-charts/main/charts/other/app-template/schemas/helmrelease-helm-v2.schema.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: &app frigate
+  namespace: home-automation
+spec:
+  interval: 30m
+  chartRef:
+    kind: OCIRepository
+    name: frigate
+  maxHistory: 2
+  install:
+    timeout: 15m
+    remediation:
+      retries: 3
+  upgrade:
+    timeout: 15m
+    cleanupOnFail: true
+    remediation:
+      strategy: rollback
+      retries: 3
+  uninstall:
+    keepHistory: false
+  dependsOn:
+    - name: intel-device-plugin-gpu
+      namespace: kube-system
+    - name: rook-ceph-cluster
+      namespace: rook-ceph
+    - name: volsync
+      namespace: volsync-system
+  values:
+    defaultPodOptions:
+      nodeSelector:
+        google.feature.node.kubernetes.io/coral: "true"
+        intel.feature.node.kubernetes.io/gpu: "true"
+    affinity:
+      podAntiAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                    - plex
+                    - jellyfin
+            topologyKey: "kubernetes.io/hostname"
+    controllers:
+      frigate:
+        annotations:
+          reloader.stakater.com/auto: "true"
+          # Frigate's MQTT client does not reconnect after the broker drops
+          # it, so restart Frigate whenever the broker's config or users change.
+          configmap.reloader.stakater.com/reload: mosquitto-config
+          secret.reloader.stakater.com/reload: mosquitto-secret
+        containers:
+          app:
+            image:
+              repository: ghcr.io/blakeblackshear/frigate
+              tag: "0.18.2"
+            env:
+              TZ: ${TIMEZONE}
+              LIBVA_DRIVER_NAME: iHD
+              FRIGATE_LOG_LEVEL: error
+            envFrom:
+              - secretRef:
+                  name: frigate-secret
+            probes:
+              liveness: &probes
+                enabled: false
+                custom: true
+                spec:
+                  httpGet:
+                    path: /api/version
+                    port: &port 5000
+                  initialDelaySeconds: 0
+                  periodSeconds: 10
+                  timeoutSeconds: 1
+                  failureThreshold: 3
+              readiness: *probes
+              startup:
+                enabled: false
+            resources:
+              requests:
+                cpu: 10m
+                memory: 1000Mi
+                gpu.intel.com/i915: 1
+              limits:
+                memory: 6000Mi
+                gpu.intel.com/i915: 1
+            securityContext:
+              privileged: true
+    service:
+      app:
+        controller: *app
+        type: LoadBalancer
+        annotations:
+          io.cilium/lb-ipam-ips: ${SECRET_LB_FRIGATE_IP}
+        ports:
+          http:
+            port: 5000
+          rtsp:
+            port: 8554
+          webrtc-tcp:
+            port: 8555
+            protocol: TCP
+          webrtc-udp:
+            port: 8555
+            protocol: UDP
+          go2rtc:
+            port: 1984
+            protocol: TCP
+    route:
+      app:
+        annotations:
+          gatus.home-operations.com/endpoint: |-
+            # SecurityPolicy redirects every request to Authentik; check the
+            # redirect itself rather than following it to the login page.
+            conditions: ["[STATUS] == 302"]
+            client:
+              ignore-redirect: true
+        hostnames: ["frigate.${SECRET_DOMAIN}"]
+        parentRefs:
+          - name: envoy-internal
+            namespace: network
+        rules:
+          - backendRefs:
+              - identifier: app
+                port: 5000
+    persistence:
+      config:
+        enabled: true
+        existingClaim: frigate
+        globalMounts:
+          - path: /data
+      # Encrypted: camera, zone and mask names describe the property.
+      # config/config.example.yaml shows the shape.
+      config-file:
+        type: secret
+        name: frigate-config
+        globalMounts:
+          - path: /config/config.yaml
+            subPath: config.yaml
+            #readOnly: false
+      media:
+        type: nfs
+        server: ${SECRET_NAS_IP}
+        path: ${SECRET_NAS_FRIGATE_PATH}
+        globalMounts:
+          - path: /media/frigate
+      cache:
+        enabled: true
+        type: emptyDir
+        medium: Memory
+        sizeLimit: 4Gi
+        globalMounts:
+          - path: /dev/shm
+      #run-secrets:
+      #  enabled: true
+      #  type: secret
+      #  name: frigate-secret
+      #  globalMounts:
+      #    - path: /run/secrets

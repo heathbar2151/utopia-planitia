@@ -1,0 +1,218 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/bjw-s-labs/helm-charts/main/charts/other/app-template/schemas/helmrelease-helm-v2.schema.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: plex
+spec:
+  interval: 1h
+  chartRef:
+    kind: OCIRepository
+    name: plex
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    cleanupOnFail: true
+    remediation:
+      strategy: rollback
+      retries: 3
+  dependsOn:
+    - name: intel-device-plugin-gpu
+      namespace: kube-system
+  values:
+    controllers:
+      plex:
+        annotations:
+          reloader.stakater.com/auto: "true"
+        containers:
+          app:
+            image:
+              repository: ghcr.io/home-operations/plex
+              tag: 1.43.5.11029@sha256:996656c7b98462bc726e5c63ae7778fc084cff4560677b4a4e45edf0f3fa67dc
+            env:
+              TZ: America/New_York
+              PLEX_ADVERTISE_URL: https://plex.${SECRET_DOMAIN}:443,http://${SECRET_LB_PLEX_IP}:32400
+              PLEX_NO_AUTH_NETWORKS: ${SECRET_CLUSTER_LAN_CIDR},${SECRET_MGMT_LAN_CIDR}
+            probes:
+              liveness: &probes
+                enabled: true
+                custom: true
+                spec:
+                  httpGet:
+                    path: /identity
+                    port: 32400
+                  initialDelaySeconds: 0
+                  periodSeconds: 10
+                  timeoutSeconds: 1
+                  failureThreshold: 3
+              readiness: *probes
+              startup:
+                enabled: true
+                spec:
+                  failureThreshold: 30
+                  periodSeconds: 10
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities: { drop: ["ALL"] }
+            resources:
+              requests:
+                cpu: 4000m
+              limits:
+                gpu.intel.com/i915: 1
+                memory: 20Gi
+          # Ships Plex's file-based logs to Loki (see otelcol.yaml).
+          otelcol:
+            image:
+              repository: ghcr.io/open-telemetry/opentelemetry-collector-releases/opentelemetry-collector-contrib
+              tag: 0.163.1
+            args:
+              - --config=/etc/otelcol/otelcol.yaml
+            env:
+              POD_NAME:
+                valueFrom:
+                  fieldRef:
+                    fieldPath: metadata.name
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities: { drop: ["ALL"] }
+            resources:
+              requests:
+                cpu: 10m
+                memory: 64Mi
+              limits:
+                memory: 192Mi
+    defaultPodOptions:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 568
+        runAsGroup: 568
+        fsGroup: 568
+        fsGroupChangePolicy: OnRootMismatch
+        supplementalGroups: [44]
+      nodeSelector:
+        intel.feature.node.kubernetes.io/gpu: "true"
+    affinity:
+      podAntiAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                    - frigate
+                    - jellyfin
+            topologyKey: "kubernetes.io/hostname"
+    service:
+      app:
+        controller: plex
+        type: LoadBalancer
+        annotations:
+          lbipam.cilium.io/ips: ${SECRET_LB_PLEX_IP}
+        ports:
+          http:
+            port: 32400
+    route:
+      app:
+        annotations:
+          gatus.home-operations.com/endpoint: |-
+            path: /identity
+        hostnames: ["plex.${SECRET_DOMAIN}"]
+        parentRefs:
+          - name: envoy-internal
+            namespace: network
+        rules:
+          - name: app
+            backendRefs: &backendRefs
+              - identifier: app
+                port: 32400
+            filters:
+              - type: RequestHeaderModifier
+                requestHeaderModifier: &pipeline
+                  set:
+                    # Plex closes idle keep-alive connections after 20s unless this is set
+                    - name: X-Plex-Http-Pipeline
+                      value: infinite
+          - name: events
+            backendRefs: *backendRefs
+            filters:
+              - type: RequestHeaderModifier
+                requestHeaderModifier: *pipeline
+            matches:
+              - path:
+                  type: PathPrefix
+                  value: /:/eventsource
+              - path:
+                  type: PathPrefix
+                  value: /:/websockets
+          # https://forums.plex.tv/t/external-srt-subtitles-are-not-working-w-reverse-proxy/886540
+          - name: subtitles
+            backendRefs: *backendRefs
+            filters:
+              - type: RequestHeaderModifier
+                requestHeaderModifier:
+                  <<: *pipeline
+                  remove:
+                    - Range
+            matches:
+              - path:
+                  type: PathPrefix
+                  value: /library/streams
+    persistence:
+      config:
+        existingClaim: plex
+        globalMounts:
+          - path: /config/Library/Application Support/Plex Media Server
+      config-cache:
+        existingClaim: plex-cache
+        globalMounts:
+          - path: /config/Library/Application Support/Plex Media Server/Cache
+      media-movies:
+        type: nfs
+        server: ${SECRET_NAS_HOST}
+        path: ${SECRET_NAS_MOVIES_PATH}
+        globalMounts:
+          - path: /media/movies
+            readOnly: true
+      media-shows:
+        type: nfs
+        server: ${SECRET_NAS_HOST}
+        path: ${SECRET_NAS_SHOWS_PATH}
+        globalMounts:
+          - path: media/shows
+            readOnly: true
+      media-music:
+        type: nfs
+        server: ${SECRET_NAS_HOST}
+        path: ${SECRET_NAS_MUSIC_PATH}
+        globalMounts:
+          - path: /media/music
+            readOnly: true
+      tmpfs:
+        type: emptyDir
+        advancedMounts:
+          plex:
+            app:
+              - path: /config/Library/Application Support/Plex Media Server/Logs
+                subPath: logs
+              - path: /transcode
+                subPath: transcode
+              - path: /tmp
+                subPath: tmp
+            otelcol:
+              - path: /var/log/plex
+                subPath: logs
+                readOnly: true
+              - path: /var/lib/otelcol
+                subPath: otelcol
+      config-file:
+        type: configMap
+        name: plex-otelcol-config
+        advancedMounts:
+          plex:
+            otelcol:
+              - path: /etc/otelcol/otelcol.yaml
+                subPath: otelcol.yaml
+                readOnly: true

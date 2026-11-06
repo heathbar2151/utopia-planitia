@@ -1,0 +1,50 @@
+---
+# yaml-language-server: $schema=https://kubernetes-schemas.pages.dev/helm.toolkit.fluxcd.io/helmrelease_v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: actions-runner-controller
+spec:
+  interval: 30m
+  chartRef:
+    kind: OCIRepository
+    name: actions-runner-controller
+  install:
+    crds: CreateReplace
+    remediation:
+      retries: 3
+  upgrade:
+    crds: CreateReplace
+    cleanupOnFail: true
+    remediation:
+      strategy: rollback
+      retries: 3
+  values:
+    # Fixes the controller ServiceAccount name to "actions-runner-controller",
+    # which the runner scale sets reference explicitly
+    # (controllerServiceAccount) instead of relying on chart lookup.
+    fullnameOverride: actions-runner-controller
+    replicaCount: 1
+    flags:
+      logLevel: info
+      logFormat: json
+    # Controller and listener metrics; scraped by podmonitor.yaml. Listener
+    # pods run in this namespace too (ARC puts them next to the controller).
+    metrics:
+      controllerManagerAddr: ":8080"
+      listenerAddr: ":8080"
+      listenerEndpoint: /metrics
+    securityContext:
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop: ["ALL"]
+      readOnlyRootFilesystem: true
+      runAsNonRoot: true
+      runAsUser: 65532
+      runAsGroup: 65532
+    resources:
+      requests:
+        cpu: 10m
+        memory: 64Mi
+      limits:
+        memory: 256Mi

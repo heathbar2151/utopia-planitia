@@ -1,0 +1,169 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/bjw-s-labs/helm-charts/main/charts/other/app-template/schemas/helmrelease-helm-v2.schema.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: &app authentik-server
+spec:
+  interval: 30m
+  chartRef:
+    kind: OCIRepository
+    name: authentik-server
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    cleanupOnFail: true
+    remediation:
+      strategy: rollback
+      retries: 3
+  values:
+    controllers:
+      authentik-server:
+        # Two replicas on different nodes, so one node going down doesn't
+        # take Authentik with it. ScheduleAnyway: with a node out, co-locate
+        # rather than leave a pod Pending. pod-template-hash scopes the skew
+        # to the current ReplicaSet so a rollout re-spreads.
+        replicas: 2
+        strategy: RollingUpdate
+        pod:
+          topologySpreadConstraints:
+            - maxSkew: 1
+              topologyKey: kubernetes.io/hostname
+              whenUnsatisfiable: ScheduleAnyway
+              labelSelector:
+                matchLabels:
+                  app.kubernetes.io/controller: authentik-server
+              matchLabelKeys:
+                - pod-template-hash
+        annotations:
+          reloader.stakater.com/auto: "true"
+        initContainers:
+          init-db:
+            image:
+              repository: ghcr.io/home-operations/postgres-init
+              tag: 18
+            envFrom:
+              - secretRef:
+                  name: authentik-init-db
+            # postgres-init's image USER is the non-numeric "nobody" - kubelet
+            # can't statically verify runAsNonRoot without an explicit numeric
+            # UID. Matches the working staying-fit pattern for this same image.
+            securityContext:
+              runAsUser: 1000
+              runAsGroup: 1000
+        containers:
+          app:
+            image:
+              repository: ghcr.io/goauthentik/server
+              tag: 2026.8@sha256:602227a86455d6772e3d16b7d852713c4f864f40df5df894abd1285bb53979a5
+            # k8s `command` replaces the image's ENTRYPOINT entirely (unlike
+            # Compose's `command`, which only overrides CMD and keeps
+            # ENTRYPOINT) - the image's own entrypoint script is what actually
+            # dispatches on "server"/"worker", so it has to stay in place and
+            # receive this as an arg instead.
+            args: ["server"]
+            envFrom:
+              - secretRef:
+                  name: authentik-credentials
+            probes:
+              liveness:
+                enabled: true
+                custom: true
+                spec:
+                  httpGet:
+                    path: /-/health/live/
+                    port: 9000
+                  initialDelaySeconds: 30
+                  periodSeconds: 30
+                  failureThreshold: 3
+              readiness:
+                enabled: true
+                custom: true
+                spec:
+                  httpGet:
+                    path: /-/health/ready/
+                    port: 9000
+                  initialDelaySeconds: 30
+                  periodSeconds: 15
+            securityContext:
+              allowPrivilegeEscalation: false
+              capabilities: { drop: ["ALL"] }
+            resources:
+              requests:
+                cpu: 100m
+                memory: 1Gi
+              limits:
+                memory: 2Gi
+    defaultPodOptions:
+      securityContext:
+        runAsNonRoot: true
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile: { type: RuntimeDefault }
+    service:
+      app:
+        controller: *app
+        ports:
+          http:
+            port: 9000
+          # Prometheus metrics (authentik_*), served on a separate port.
+          metrics:
+            port: 9300
+    serviceMonitor:
+      app:
+        serviceName: authentik-server
+        endpoints:
+          - port: metrics
+            scheme: http
+            path: /metrics
+            interval: 1m
+            scrapeTimeout: 10s
+    route:
+      internal:
+        annotations:
+          gatus.home-operations.com/endpoint: |-
+            path: /-/health/live/
+        hostnames: ["${SECRET_HOST_AUTHENTIK}.${SECRET_DOMAIN}"]
+        parentRefs:
+          - name: envoy-internal
+            namespace: network
+        rules:
+          - backendRefs:
+              - identifier: app
+                port: 9000
+      external:
+        annotations:
+          gatus.home-operations.com/endpoint: |-
+            path: /-/health/live/
+        hostnames: ["${SECRET_HOST_AUTHENTIK}.${SECRET_DOMAIN}"]
+        parentRefs:
+          - name: envoy-external
+            namespace: network
+        rules:
+          # The admin interface is only served on the internal route.
+          - matches:
+              - path:
+                  type: PathPrefix
+                  value: /if/admin
+            filters:
+              - type: RequestRedirect
+                requestRedirect:
+                  path:
+                    type: ReplaceFullPath
+                    replaceFullPath: /if/user/
+                  statusCode: 302
+          - backendRefs:
+              - identifier: app
+                port: 9000
+    persistence:
+      media:
+        existingClaim: authentik
+        globalMounts:
+          # /media is the legacy mount path - current authentik expects
+          # persistent storage at /data (media files live under /data/media
+          # inside the container). A /media mount only gets backward-compat
+          # *reads* of pre-existing files; new uploads 500 with
+          # "No file management backend configured" against it. See
+          # https://docs.goauthentik.io/troubleshooting/image_upload/.
+          - path: /data

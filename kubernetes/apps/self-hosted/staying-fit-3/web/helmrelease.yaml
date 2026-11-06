@@ -1,0 +1,165 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/bjw-s-labs/helm-charts/main/charts/other/app-template/schemas/helmrelease-helm-v2.schema.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: &app ${SECRET_SF3_NAME}-web
+spec:
+  interval: 30m
+  chartRef:
+    kind: OCIRepository
+    name: ${SECRET_SF3_NAME}-web
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    cleanupOnFail: true
+    remediation:
+      strategy: rollback
+      retries: 3
+  values:
+    controllers:
+      ${SECRET_SF3_NAME}-web:
+        # Multi-instance, same as staying-fit-1:
+        # 2 replicas, rolling updates gated on /readyz instead of Recreate.
+        replicas: 2
+        strategy: RollingUpdate
+        # Keep the 2 replicas on different nodes so one node going down
+        # can't take the whole service with it. ScheduleAnyway, not
+        # DoNotSchedule: on a small cluster a node outage should degrade to
+        # co-located replicas, not a Pending pod. pod-template-hash scopes
+        # the skew to the current ReplicaSet, so a rollout re-spreads.
+        pod:
+          topologySpreadConstraints:
+            - maxSkew: 1
+              topologyKey: kubernetes.io/hostname
+              whenUnsatisfiable: ScheduleAnyway
+              labelSelector:
+                matchLabels:
+                  app.kubernetes.io/controller: ${SECRET_SF3_NAME}-web
+              matchLabelKeys:
+                - pod-template-hash
+        annotations:
+          reloader.stakater.com/auto: "true"
+        # No init-db - web never talks to Postgres directly, only api does.
+        containers:
+          app:
+            image:
+              repository: ghcr.io/bluetellarite/staying-fit-web
+              # Bumped alongside api - keep these two in lockstep, even
+              # though web itself has no direct change.
+              tag: v0.66.0
+            env:
+              RUST_LOG: info
+              # OpenTelemetry tracing: setting the endpoint
+              # turns it on. gRPC only, so the collector's :4317. Service name
+              # is the HelmRelease name so each instance is its own node in
+              # the service graph. Gatus probes are skipped app-side
+              # (TRACE_SKIP_USER_AGENTS defaults to Gatus/1.0).
+              OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector.observability.svc.cluster.local:4317
+              OTEL_SERVICE_NAME: ${SECRET_SF3_NAME}-web
+              OTEL_RESOURCE_ATTRIBUTES: deployment.environment.name=${SECRET_SF3_ENV}
+              # Matches api's own APP_TZ (see api/helmrelease.yaml).
+              APP_TZ: America/New_York
+              # In-namespace short DNS name - api's own Service, same
+              # `self-hosted` namespace, ClusterIP-only (see api/helmrelease.yaml).
+              API_BASE_URL: http://${SECRET_SF3_NAME}-api:3000
+              WEB_PUBLIC_URL: https://${SECRET_SF3_HOST}.${SECRET_DOMAIN}
+              # File paths, not secret values - key bytes come from the
+              # jwt Secret volume mounted below (same Secret api mounts,
+              # web additionally needs the private half to mint sessions).
+              JWT_PRIVATE_KEY_PATH: /app/data/jwt/private.pem
+              JWT_PUBLIC_KEY_PATH: /app/data/jwt/public.pem
+              OIDC_PROVIDER_LABEL: Authentik
+              # SSO login-handshake state shared across web replicas via the
+              # cluster's shared Dragonfly (database ns), one DB index per instance;
+              # pick an unused index for a new instance. web refuses to start if this
+              # is unreachable rather than silently falling back to in-process.
+              REDIS_URL: redis://dragonfly.database.svc.cluster.local:6379/6
+            envFrom:
+              - secretRef:
+                  name: ${SECRET_SF3_NAME}-auth-credentials
+              # optional: web still starts if this Secret is missing; it
+              # then just doesn't send the internal-api header.
+              - secretRef:
+                  name: ${SECRET_SF3_NAME}-internal-api-credentials
+                  optional: true
+            # Keep serving for 5s after the pod is marked for deletion, before
+            # SIGTERM starts graceful shutdown - gives the gateway and
+            # Cilium's service LB time to stop routing new connections here
+            # (without it, connections can be refused briefly at each old pod's
+            # termination). Native sleep action - the FROM scratch images have
+            # no `sleep` binary for an exec hook.
+            lifecycle:
+              preStop:
+                sleep:
+                  seconds: 5
+            # /healthz is liveness (no dependency checks),
+            # /readyz is readiness (deliberately no dependency on api).
+            probes:
+              liveness:
+                enabled: true
+                custom: true
+                spec:
+                  httpGet:
+                    path: /healthz
+                    port: 3000
+                  initialDelaySeconds: 5
+                  periodSeconds: 20
+                  timeoutSeconds: 1
+                  failureThreshold: 3
+              readiness:
+                enabled: true
+                custom: true
+                spec:
+                  httpGet:
+                    path: /readyz
+                    port: 3000
+                  initialDelaySeconds: 2
+                  periodSeconds: 10
+                  timeoutSeconds: 1
+                  failureThreshold: 3
+            resources:
+              requests:
+                cpu: 15m
+                memory: 128Mi
+              limits:
+                memory: 256Mi
+    defaultPodOptions:
+      imagePullSecrets:
+        - name: staying-fit-ghcr-secret
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile: { type: RuntimeDefault }
+    service:
+      app:
+        controller: *app
+        ports:
+          http:
+            port: 3000
+    # This app has its own login (local accounts/OIDC), so it needs no
+    # SecurityPolicy/native-OIDC wiring.
+    route:
+      app:
+        annotations:
+          gatus.home-operations.com/endpoint: |-
+            path: /login
+        hostnames: ["${SECRET_SF3_HOST}.${SECRET_DOMAIN}"]
+        parentRefs:
+          - name: envoy-external
+            namespace: network
+        rules:
+          - backendRefs:
+              - identifier: app
+                port: 3000
+    persistence:
+      jwt:
+        type: secret
+        name: ${SECRET_SF3_NAME}-jwt
+        globalMounts:
+          - path: /app/data/jwt
+            readOnly: true

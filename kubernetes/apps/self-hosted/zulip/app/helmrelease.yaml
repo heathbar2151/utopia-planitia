@@ -1,0 +1,383 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/bjw-s-labs/helm-charts/main/charts/other/app-template/schemas/helmrelease-helm-v2.schema.json
+# Zulip on app-template rather than Zulip's own chart: that chart bundles
+# unmaintained bitnamilegacy RabbitMQ/Memcached/Redis subcharts and only
+# supports Ingress. Settings follow the image's env conventions:
+# SETTING_* -> settings.py, CONFIG_* -> zulip.conf, SECRETS_* ->
+# zulip-secrets.conf (re-applied on every boot; settings.py lives in the
+# container, so the env here is the source of truth).
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: zulip
+spec:
+  interval: 1h
+  chartRef:
+    kind: OCIRepository
+    name: zulip
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    cleanupOnFail: true
+    remediation:
+      strategy: rollback
+      retries: 3
+  values:
+    controllers:
+      zulip:
+        # RWO /data volume, single instance only (the image doesn't support
+        # running more than one copy).
+        strategy: Recreate
+        annotations:
+          reloader.stakater.com/auto: "true"
+        containers:
+          app:
+            image:
+              repository: ghcr.io/zulip/zulip-server
+              tag: 12.3-0@sha256:76a1ecc4ba5470869d9609ef1ec16497b410189918b2daba85862183a59aa275
+            env:
+              SETTING_EXTERNAL_HOST: ${SECRET_HOST_ZULIP}.${SECRET_DOMAIN}
+              # SETTING_ZULIP_ADMINISTRATOR (real contact address, also sent to
+              # the push service on registration) comes from the zulip
+              # ExternalSecret, keeping it out of git.
+              # Mobile push via Zulip's Mobile Push Notification Service
+              # (free up to 10 users; E2EE payloads on 12.0+ with current
+              # apps). Registered once with `manage.py register_server`; the
+              # resulting zulip_org_id/key live in /data/zulip-secrets.conf.
+              SETTING_ZULIP_SERVICE_PUSH_NOTIFICATIONS: "True"
+              SETTING_ZULIP_SERVICE_SUBMIT_USAGE_STATISTICS: "False"
+              # TLS ends at Envoy; trust its X-Forwarded-* from the pod network
+              # (same CIDR as the gateway's own trustedCIDRs).
+              LOADBALANCER_IPS: ${SECRET_POD_CIDR}
+              # Shared postgres-vector cluster; TLS with the server cert
+              # verified against its CA (mounted from zulip-db-ca).
+              SETTING_REMOTE_POSTGRES_HOST: postgres-vector-rw.database.svc.cluster.local
+              SETTING_REMOTE_POSTGRES_PORT: "5432"
+              SETTING_REMOTE_POSTGRES_SSLMODE: verify-full
+              PGSSLROOTCERT: /certs/ca.crt
+              CONFIG_postgresql__database_user: zulip
+              CONFIG_postgresql__database_name: zulip
+              SETTING_RABBITMQ_HOST: zulip-rabbitmq
+              SETTING_REDIS_HOST: zulip-valkey
+              SETTING_REDIS_PORT: "6379"
+              SETTING_MEMCACHED_LOCATION: zulip-memcached:11211
+              # Small install: threaded queue workers use far less RAM than
+              # the multiprocess mode the auto-detection would pick.
+              CONFIG_application_server__queue_workers_multiprocess: "False"
+              # Login through Authentik (OIDC) only.
+              # Zulip can't sync roles over OIDC; Authentik groups
+              # only gate login, roles are set in
+              # Zulip. oidc_url has no trailing slash (Zulip appends
+              # /.well-known/openid-configuration itself). A {...} value is
+              # written into settings.py as Python, so get_secret() reads the
+              # client secret from zulip-secrets.conf
+              # (SECRETS_social_auth_oidc_secret).
+              ZULIP_AUTH_BACKENDS: GenericOpenIdConnectBackend
+              SETTING_SOCIAL_AUTH_OIDC_ENABLED_IDPS: >-
+                {"authentik": {"oidc_url": "https://${SECRET_HOST_AUTHENTIK}.${SECRET_DOMAIN}/application/o/zulip",
+                "display_name": "Authentik", "display_icon": None,
+                "client_id": "apDyJs7tIJUOfPprSIB9HQ6UIxhY9iI427k4Zn1c",
+                "secret": get_secret("social_auth_oidc_secret"), "auto_signup": True}}
+              SETTING_SOCIAL_AUTH_OIDC_FULL_NAME_VALIDATED: "True"
+              # New accounts get the Authentik username as their Zulip name
+              # (Authentik users may have no display name set). Only used
+              # at account creation; users can rename themselves in Zulip.
+              SETTING_SOCIAL_AUTH_OIDC_FULLNAME_KEY: preferred_username
+              # Extra scope on top of openid/profile/email: Authentik's
+              # "Zulip email (verified)" mapping, which asserts email_verified
+              # (Zulip rejects logins without it; the default mapping says False).
+              SETTING_SOCIAL_AUTH_OIDC_SCOPE: '["zulip"]'
+              # Zulip sends outbound HTTP through its Smokescreen proxy, which
+              # denies private IPs, so allow just the IdP's address for OIDC
+              # discovery and token calls (keep in sync with network/envoy-gateway
+              # envoy.yaml).
+              CONFIG_http_proxy__allow_addresses: ${SECRET_LB_ENVOY_INTERNAL_IP}
+              # No SMTP on purpose (invites by link, no email notifications).
+              # With EMAIL_HOST unset Zulip falls back to Django's dummy backend
+              # anyway, but also shows a "Zulip needs to send email" banner;
+              # setting the same dummy backend explicitly drops the banner.
+              SETTING_EMAIL_BACKEND: django.core.mail.backends.dummy.EmailBackend
+              SECRETS_rabbitmq_password:
+                valueFrom:
+                  secretKeyRef:
+                    name: zulip-rabbitmq
+                    key: password
+              SECRETS_redis_password:
+                valueFrom:
+                  secretKeyRef:
+                    name: zulip-valkey
+                    key: password
+              SECRETS_memcached_password:
+                valueFrom:
+                  secretKeyRef:
+                    name: zulip-memcached
+                    key: password
+            envFrom:
+              - secretRef:
+                  name: zulip
+            probes:
+              # Liveness only checks nginx in this container answers (a static
+              # file, no Django or backends). /health also checks Postgres,
+              # RabbitMQ, Valkey and memcached, so using it for liveness turned a
+              # RabbitMQ restart into a full Zulip reboot; supervisord already
+              # restarts Zulip's own processes if they die.
+              liveness:
+                enabled: true
+                custom: true
+                spec:
+                  exec:
+                    command: ["curl", "--silent", "--fail", "--max-time", "5", "http://127.0.0.1/static/images/logo/zulip-icon-128x128.png"]
+                  periodSeconds: 10
+                  timeoutSeconds: 6
+                  failureThreshold: 6
+              # Readiness keeps the full /health (via loopback: /health trusts
+              # 127.0.0.1 regardless of LOADBALANCER_IPS), so traffic pauses
+              # while a backend is down instead of the container being killed.
+              readiness:
+                enabled: true
+                custom: true
+                spec:
+                  exec:
+                    command: ["curl", "--silent", "--fail", "--max-time", "5", "http://127.0.0.1/health"]
+                  periodSeconds: 10
+                  timeoutSeconds: 6
+                  failureThreshold: 6
+              startup:
+                # First boot runs all migrations and takes several minutes.
+                enabled: true
+                custom: true
+                spec:
+                  exec:
+                    command: ["curl", "--silent", "--fail", "--max-time", "5", "http://127.0.0.1/health"]
+                  periodSeconds: 10
+                  timeoutSeconds: 6
+                  failureThreshold: 90
+            # The entrypoint and supervisord run as root and drop to the
+            # zulip user (1000) per process, so no runAsNonRoot here.
+            resources:
+              requests:
+                cpu: 200m
+                memory: 1Gi
+              limits:
+                memory: 3Gi
+        pod:
+          securityContext:
+            # Group-readable files on /data for the volsync mover (1000).
+            fsGroup: 1000
+            fsGroupChangePolicy: OnRootMismatch
+            seccompProfile: { type: RuntimeDefault }
+      rabbitmq:
+        annotations:
+          reloader.stakater.com/auto: "true"
+        containers:
+          app:
+            image:
+              repository: docker.io/library/rabbitmq
+              tag: 4.4.0@sha256:71be6ca71cd3ad92f29b354ec381b1ee587894aaaac21f185b8cf43fb50d3feb
+            # Event queue between Zulip's processes - nothing worth persisting.
+            envFrom:
+              - secretRef:
+                  name: zulip-rabbitmq
+            probes:
+              liveness: &rabbitProbes
+                enabled: true
+                custom: true
+                spec:
+                  tcpSocket:
+                    port: 5672
+                  periodSeconds: 10
+                  failureThreshold: 6
+              readiness: *rabbitProbes
+              startup:
+                enabled: true
+                custom: true
+                spec:
+                  tcpSocket:
+                    port: 5672
+                  periodSeconds: 5
+                  failureThreshold: 60
+            securityContext:
+              allowPrivilegeEscalation: false
+              capabilities: { drop: ["ALL"] }
+            resources:
+              requests:
+                cpu: 50m
+                memory: 128Mi
+              limits:
+                memory: 512Mi
+        pod:
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 999
+            runAsGroup: 999
+            fsGroup: 999
+            fsGroupChangePolicy: OnRootMismatch
+            seccompProfile: { type: RuntimeDefault }
+      memcached:
+        annotations:
+          reloader.stakater.com/auto: "true"
+        containers:
+          app:
+            image:
+              repository: docker.io/library/memcached
+              tag: 1.6.45-alpine@sha256:9e4de012dc607573052061c0bcb38abc775e1dd59b24e7ac38d1892842094aaf
+            args: ["-S", "-m", "256"]
+            env:
+              SASL_CONF_PATH: /sasl
+              MEMCACHED_SASL_PWDB: /sasl/sasl-pwdb
+            probes:
+              liveness: &memcachedProbes
+                enabled: true
+                custom: true
+                spec:
+                  tcpSocket:
+                    port: 11211
+                  periodSeconds: 10
+              readiness: *memcachedProbes
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities: { drop: ["ALL"] }
+            resources:
+              requests:
+                cpu: 20m
+                memory: 64Mi
+              limits:
+                memory: 320Mi
+        pod:
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 11211
+            runAsGroup: 11211
+            fsGroup: 11211
+            seccompProfile: { type: RuntimeDefault }
+      valkey:
+        annotations:
+          reloader.stakater.com/auto: "true"
+        containers:
+          app:
+            image:
+              repository: docker.io/valkey/valkey
+              tag: 9.1.2-alpine@sha256:48332870af354a799964c0012ae1194a0bf2bf894eb508f945810596dc2d8d11
+            # Rate limiting and short-lived state only - nothing to persist.
+            args:
+              - --requirepass
+              - $$(REDIS_PASSWORD)
+              - --save
+              - ""
+              - --appendonly
+              - "no"
+            envFrom:
+              - secretRef:
+                  name: zulip-valkey
+            probes:
+              liveness: &valkeyProbes
+                enabled: true
+                custom: true
+                spec:
+                  tcpSocket:
+                    port: 6379
+                  periodSeconds: 10
+              readiness: *valkeyProbes
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities: { drop: ["ALL"] }
+            resources:
+              requests:
+                cpu: 20m
+                memory: 64Mi
+              limits:
+                memory: 512Mi
+        pod:
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 999
+            runAsGroup: 999
+            fsGroup: 999
+            seccompProfile: { type: RuntimeDefault }
+    service:
+      app:
+        controller: zulip
+        primary: true
+        ports:
+          http:
+            port: &port 80
+      rabbitmq:
+        controller: rabbitmq
+        ports:
+          amqp:
+            port: 5672
+      memcached:
+        controller: memcached
+        ports:
+          memcached:
+            port: 11211
+      valkey:
+        controller: valkey
+        ports:
+          redis:
+            port: 6379
+    route:
+      app:
+        annotations:
+          # /health answers 403 to anything but loopback, so check the
+          # unauthenticated server_settings API instead.
+          gatus.home-operations.com/endpoint: |-
+            path: /api/v1/server_settings
+        hostnames: ["${SECRET_HOST_ZULIP}.${SECRET_DOMAIN}"]
+        parentRefs:
+          - name: envoy-internal
+            namespace: network
+        rules:
+          - backendRefs:
+              - identifier: app
+                port: *port
+    persistence:
+      # Uploads, generated zulip-secrets.conf and daily pg_dumps; backed up
+      # by volsync (claim created by the volsync component).
+      data:
+        existingClaim: zulip
+        advancedMounts:
+          zulip:
+            app:
+              - path: /data
+      post-setup:
+        type: configMap
+        name: zulip-post-setup
+        # 0755 in decimal; a leading-zero octal literal is ambiguous
+        # between YAML 1.1 and 1.2 parsers.
+        defaultMode: 493
+        advancedMounts:
+          zulip:
+            app:
+              - path: /data/post-setup.d
+                readOnly: true
+      db-ca:
+        type: secret
+        name: zulip-db-ca
+        advancedMounts:
+          zulip:
+            app:
+              - path: /certs
+                readOnly: true
+      memcached-sasl:
+        type: secret
+        name: zulip-memcached
+        advancedMounts:
+          memcached:
+            app:
+              - path: /sasl
+                readOnly: true
+      tmpfs:
+        type: emptyDir
+        advancedMounts:
+          rabbitmq:
+            app:
+              - path: /var/lib/rabbitmq
+                subPath: rabbitmq
+          valkey:
+            app:
+              - path: /data
+                subPath: valkey

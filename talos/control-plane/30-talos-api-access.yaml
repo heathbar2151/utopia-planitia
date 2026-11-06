@@ -1,0 +1,7 @@
+# Lets tuppr (system-upgrade namespace) drive upgrades over the Talos API.
+apiVersion: v1alpha1
+kind: KubeTalosAPIAccessConfig
+allowedRoles:
+  - os:admin
+allowedKubernetesNamespaces:
+  - system-upgrade

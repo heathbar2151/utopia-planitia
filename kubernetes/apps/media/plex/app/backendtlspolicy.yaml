@@ -1,0 +1,19 @@
+---
+# yaml-language-server: $schema=https://k8s-schemas.home-operations.com/gateway.networking.k8s.io/backendtlspolicy_v1.json
+# Envoy -> Plex over verified TLS. Plex serves its own Let's Encrypt
+# *.<server-hash>.plex.direct certificate on 32400 (same port as plain HTTP),
+# so validate against a name under that wildcard (SECRET_PLEX_DIRECT_HOST)
+# rather than the Service name.
+apiVersion: gateway.networking.k8s.io/v1
+kind: BackendTLSPolicy
+metadata:
+  name: plex
+spec:
+  targetRefs:
+    - group: ""
+      kind: Service
+      name: plex
+      sectionName: http
+  validation:
+    hostname: ${SECRET_PLEX_DIRECT_HOST}
+    wellKnownCACertificates: System

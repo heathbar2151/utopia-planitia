@@ -1,0 +1,26 @@
+---
+# yaml-language-server: $schema=https://k8s-schemas.home-operations.com/gateway.envoyproxy.io/securitypolicy_v1alpha1.json
+# Authentik login in front of the web UI. Frigate has no OIDC support, so
+# Envoy is the OIDC client and Frigate sees only authenticated requests.
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: SecurityPolicy
+metadata:
+  name: frigate-oidc
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: frigate
+  oidc:
+    provider:
+      issuer: https://${SECRET_HOST_AUTHENTIK}.${SECRET_DOMAIN}/application/o/frigate/
+    clientIDRef:
+      group: ""
+      kind: Secret
+      name: frigate-oidc
+    clientSecret:
+      group: ""
+      kind: Secret
+      name: frigate-oidc
+    redirectURL: https://frigate.${SECRET_DOMAIN}/oauth2/callback
+    scopes: ["openid", "email", "profile"]

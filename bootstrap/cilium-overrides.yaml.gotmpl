@@ -1,0 +1,8 @@
+---
+# Bootstrap-only overrides for cilium. The shared values file
+# (kubernetes/apps/kube-system/cilium/app/helm-values.yaml) uses Flux
+# postBuild variables, which helmfile doesn't substitute, so the real values
+# are decrypted from cluster-secrets here. Listed after the shared file, so
+# these win.
+{{- $secrets := printf "%s/kubernetes/components/common/cluster-secrets.sops.yaml" (requiredEnv "ROOT_DIR") }}
+ipv4NativeRoutingCIDR: {{ exec "sops" (list "--decrypt" "--extract" "[\"stringData\"][\"SECRET_POD_CIDR\"]" $secrets) | quote }}

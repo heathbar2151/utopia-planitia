@@ -1,0 +1,21 @@
+---
+# yaml-language-server: $schema=https://kubernetes-schemas.pages.dev/postgresql.cnpg.io/database_v1.json
+# Zulip's database, owned by the non-superuser zulip role. Zulip needs no
+# extensions. Encoding/locale match Zulip's own create-db.sql (UTF8,
+# C.UTF-8, from template0); the cluster default is plain C, which would
+# break case-insensitive matching on non-ASCII text. Immutable after
+# creation.
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: postgres-vector-zulip
+spec:
+  name: zulip
+  owner: zulip
+  cluster:
+    name: postgres-vector
+  template: template0
+  encoding: UTF8
+  localeProvider: libc
+  localeCollate: C.UTF-8
+  localeCType: C.UTF-8

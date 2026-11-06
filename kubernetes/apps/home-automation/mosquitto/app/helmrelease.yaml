@@ -1,0 +1,237 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/bjw-s-labs/helm-charts/main/charts/other/app-template/schemas/helmrelease-helm-v2.schema.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: &app mosquitto
+  namespace: home-automation
+spec:
+  interval: 30m
+  chartRef:
+    kind: OCIRepository
+    name: mosquitto
+  maxHistory: 2
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    cleanupOnFail: true
+    remediation:
+      strategy: rollback
+      retries: 3
+  uninstall:
+    keepHistory: false
+  values:
+    defaultPodOptions:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1883
+        runAsGroup: 1883
+        fsGroup: 1883
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+    controllers:
+      mosquitto:
+        # One broker at a time; clients reconnect after a restart.
+        strategy: Recreate
+        annotations:
+          reloader.stakater.com/auto: "true"
+        initContainers:
+          # Builds the hashed password file in memory, so no plaintext or
+          # hashes are written to git or a volume.
+          passwd:
+            image: &image
+              repository: eclipse-mosquitto
+              tag: 2.1.2-alpine@sha256:860aeb5d63ce509508f6dcfb2bc8a1c1dd2bc60555b562b45ce90e52d8dabb0f
+            command: ["/bin/sh", "-c"]
+            args:
+              - |
+                set -eu
+                f=/mosquitto/passwd/passwd
+                # -c refuses an existing file, which a failed earlier run can leave.
+                rm -f "$$f"
+                mosquitto_passwd -c -b "$$f" "$$MQTT_FRIGATE_USERNAME" "$$MQTT_FRIGATE_PASSWORD"
+                mosquitto_passwd -b "$$f" "$$MQTT_HA_USERNAME" "$$MQTT_HA_PASSWORD"
+                mosquitto_passwd -b "$$f" "$$MQTT_KIOSK_USERNAME" "$$MQTT_KIOSK_PASSWORD"
+                mosquitto_passwd -b "$$f" "$$MQTT_EXPORTER_USERNAME" "$$MQTT_EXPORTER_PASSWORD"
+                chmod 0600 "$$f"
+            envFrom:
+              - secretRef:
+                  name: mosquitto-secret
+            resources:
+              requests:
+                cpu: 10m
+                memory: 16Mi
+              limits:
+                memory: 64Mi
+            securityContext: &securityContext
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities:
+                drop: ["ALL"]
+        containers:
+          app:
+            image: *image
+            command: ["/usr/sbin/mosquitto", "-c", "/mosquitto/config/mosquitto.conf"]
+            probes:
+              liveness: &probes
+                enabled: true
+                custom: true
+                spec:
+                  tcpSocket:
+                    port: 1883
+                  initialDelaySeconds: 0
+                  periodSeconds: 10
+                  timeoutSeconds: 1
+                  failureThreshold: 3
+              readiness: *probes
+              startup:
+                enabled: false
+            resources:
+              requests:
+                cpu: 10m
+                memory: 32Mi
+              limits:
+                memory: 128Mi
+            securityContext: *securityContext
+          exporter:
+            image:
+              repository: kpetrem/mqtt-exporter
+              tag: 1.12.1@sha256:dca3255f35310f6ceb80ed1de94eebd1fe9def7aacaec4107fe37cdaa9eb3be0
+            env:
+              MQTT_ADDRESS: 127.0.0.1
+              MQTT_PORT: "1883"
+              MQTT_CLIENT_ID: mqtt-exporter-sys
+              # Broker statistics only, never client traffic.
+              MQTT_TOPIC: "$$SYS/#"
+              KEEP_FULL_TOPIC: "True"
+              PROMETHEUS_PORT: "9000"
+              MQTT_USERNAME: &exporterUser
+                valueFrom:
+                  secretKeyRef:
+                    name: mosquitto-secret
+                    key: MQTT_EXPORTER_USERNAME
+              MQTT_PASSWORD: &exporterPassword
+                valueFrom:
+                  secretKeyRef:
+                    name: mosquitto-secret
+                    key: MQTT_EXPORTER_PASSWORD
+            probes:
+              liveness: &exporterProbes
+                enabled: true
+                custom: true
+                spec:
+                  tcpSocket:
+                    port: 9000
+                  initialDelaySeconds: 0
+                  periodSeconds: 10
+                  timeoutSeconds: 1
+                  failureThreshold: 3
+              readiness: *exporterProbes
+              startup:
+                enabled: false
+            resources: &exporterResources
+              requests:
+                cpu: 10m
+                memory: 32Mi
+              limits:
+                memory: 128Mi
+            securityContext: *securityContext
+          # Counts Frigate's periodic stats messages as a liveness signal for
+          # its MQTT connection. Payload parsing is off: the stats payload has
+          # per-process keys that would create new metric names on every
+          # Frigate restart.
+          exporter-frigate:
+            image:
+              repository: kpetrem/mqtt-exporter
+              tag: 1.12.1@sha256:dca3255f35310f6ceb80ed1de94eebd1fe9def7aacaec4107fe37cdaa9eb3be0
+            env:
+              MQTT_ADDRESS: 127.0.0.1
+              MQTT_PORT: "1883"
+              MQTT_CLIENT_ID: mqtt-exporter-frigate
+              MQTT_TOPIC: frigate/stats
+              KEEP_FULL_TOPIC: "True"
+              PARSE_MSG_PAYLOAD: "False"
+              PROMETHEUS_PORT: "9001"
+              MQTT_USERNAME: *exporterUser
+              MQTT_PASSWORD: *exporterPassword
+            probes:
+              liveness: &exporterFrigateProbes
+                enabled: true
+                custom: true
+                spec:
+                  tcpSocket:
+                    port: 9001
+                  initialDelaySeconds: 0
+                  periodSeconds: 10
+                  timeoutSeconds: 1
+                  failureThreshold: 3
+              readiness: *exporterFrigateProbes
+              startup:
+                enabled: false
+            resources: *exporterResources
+            securityContext: *securityContext
+    service:
+      # With more than one Service, app-template appends the identifier to
+      # the name unless it equals the release name. Keep this one "mosquitto"
+      # so clients use the plain Service name.
+      mosquitto:
+        controller: *app
+        type: LoadBalancer
+        annotations:
+          lbipam.cilium.io/ips: ${SECRET_LB_MOSQUITTO_IP}
+        ports:
+          mqtt:
+            port: 1883
+      # Separate ClusterIP Service so metrics stay off the LoadBalancer.
+      metrics:
+        controller: *app
+        ports:
+          metrics:
+            port: 9000
+          metrics-frigate:
+            port: 9001
+    serviceMonitor:
+      app:
+        serviceName: mosquitto-metrics
+        endpoints:
+          - port: metrics
+            scheme: http
+            path: /metrics
+            interval: 1m
+          - port: metrics-frigate
+            scheme: http
+            path: /metrics
+            interval: 1m
+    persistence:
+      config:
+        type: configMap
+        name: mosquitto-config
+        advancedMounts:
+          mosquitto:
+            app:
+              - path: /mosquitto/config/mosquitto.conf
+                subPath: mosquitto.conf
+                readOnly: true
+      passwd:
+        type: emptyDir
+        medium: Memory
+        sizeLimit: 1Mi
+        advancedMounts:
+          mosquitto:
+            passwd:
+              - path: /mosquitto/passwd
+            app:
+              - path: /mosquitto/passwd
+                readOnly: true
+      # mosquitto_passwd writes a temporary file under /tmp when it adds a
+      # user to an existing password file.
+      tmp:
+        type: emptyDir
+        medium: Memory
+        sizeLimit: 1Mi
+        advancedMounts:
+          mosquitto:
+            passwd:
+              - path: /tmp

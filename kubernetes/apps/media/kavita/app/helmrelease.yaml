@@ -1,0 +1,133 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/bjw-s-labs/helm-charts/main/charts/other/app-template/schemas/helmrelease-helm-v2.schema.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: &app kavita
+spec:
+  interval: 30m
+  chartRef:
+    kind: OCIRepository
+    name: kavita
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    cleanupOnFail: true
+    remediation:
+      strategy: rollback
+      retries: 3
+  dependsOn:
+    - name: rook-ceph-cluster
+      namespace: rook-ceph
+  values:
+    controllers:
+      kavita:
+        labels:
+          nfsMount: "true"
+        annotations:
+          reloader.stakater.com/auto: "true"
+        initContainers:
+          # Kavita reads its OIDC issuer, client ID and secret only from
+          # appsettings.json on the config volume. Write them there on every
+          # start so they come from git and 1Password, not the UI. With no
+          # secret yet, leave the file alone so Kavita still starts.
+          oidc-config:
+            image:
+              repository: docker.io/library/python
+              tag: 3.13.9-alpine3.22@sha256:e5fa639e49b85986c4481e28faa2564b45aa8021413f31026c3856e5911618b1
+            env:
+              PYTHONDONTWRITEBYTECODE: "1"
+              OIDC_AUTHORITY: https://${SECRET_HOST_AUTHENTIK}.${SECRET_DOMAIN}/application/o/kavita/
+              # Public identifier, not a secret. Matches the Authentik blueprint.
+              OIDC_CLIENT_ID: ykgmtPSLYldo7ZwtRNyCoV4waHc1YwLSEsvA0ReX
+            envFrom:
+              - secretRef:
+                  name: kavita-oidc
+                  optional: true
+            command: ["python3", "-c"]
+            args:
+              - |
+                import json, os, sys
+                path = "/kavita/config/appsettings.json"
+                secret = os.environ.get("OIDC_CLIENT_SECRET", "")
+                if not secret:
+                    print("no OIDC client secret yet, appsettings.json unchanged")
+                    sys.exit(0)
+                try:
+                    with open(path) as f:
+                        cfg = json.load(f)
+                except FileNotFoundError:
+                    print("appsettings.json not created yet, skipping")
+                    sys.exit(0)
+                oidc = cfg.setdefault("OpenIdConnectSettings", {})
+                oidc["Authority"] = os.environ["OIDC_AUTHORITY"]
+                oidc["ClientId"] = os.environ["OIDC_CLIENT_ID"]
+                oidc["Secret"] = secret
+                scopes = oidc.get("CustomScopes") or []
+                if "offline_access" not in scopes:
+                    oidc["CustomScopes"] = scopes + ["offline_access"]
+                # Rewrite in place to keep the file's owner and mode.
+                with open(path, "w") as f:
+                    json.dump(cfg, f, indent=2)
+                print("OpenIdConnectSettings written")
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities: { drop: ["ALL"] }
+            resources:
+              requests:
+                cpu: 10m
+                memory: 32Mi
+              limits:
+                memory: 64Mi
+        containers:
+          app:
+            image:
+              repository: ghcr.io/kareadita/kavita
+              tag: 0.9.1@sha256:31181a32f0dda73cae68721867028a7253d57881b58bea5754cd9e578e75421a
+            env:
+              TZ: America/New_York
+            resources:
+              requests:
+                cpu: 25m
+                memory: 1Gi
+              limits:
+                memory: 2Gi
+    defaultPodOptions:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 568
+        runAsGroup: 568
+        fsGroup: 568
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile: { type: RuntimeDefault }
+    service:
+      app:
+        controller: *app
+        ports:
+          http:
+            port: 5000
+    route:
+      app:
+        hostnames: ["${SECRET_HOST_KAVITA}.${SECRET_DOMAIN}"]
+        parentRefs:
+          - name: envoy-internal
+            namespace: network
+        rules:
+          - backendRefs:
+              - identifier: app
+                port: 5000
+    persistence:
+      config:
+        existingClaim: *app
+        globalMounts:
+          - path: /kavita/config
+      media:
+        type: nfs
+        server: ${SECRET_NAS_HOST}
+        path: ${SECRET_NAS_BOOKS_PATH}
+        globalMounts:
+          - path: /books
+            readOnly: true
+

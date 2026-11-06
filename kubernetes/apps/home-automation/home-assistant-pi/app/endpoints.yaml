@@ -1,0 +1,11 @@
+---
+apiVersion: v1
+kind: Endpoints
+metadata:
+  name: home-assistant-pi
+subsets:
+  - addresses:
+      - ip: ${SECRET_HA_PI_IP}
+    ports:
+      - port: 80
+        protocol: TCP

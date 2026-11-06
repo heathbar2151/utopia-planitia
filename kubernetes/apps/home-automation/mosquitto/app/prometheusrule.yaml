@@ -1,0 +1,23 @@
+---
+# yaml-language-server: $schema=https://kubernetes-schemas.pages.dev/monitoring.coreos.com/prometheusrule_v1.json
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: mosquitto
+spec:
+  groups:
+    - name: mosquitto.rules
+      rules:
+        # Frigate publishes frigate/stats every minute while its MQTT
+        # connection works. Its client does not reconnect after the broker
+        # drops it, so silence here usually means Frigate needs a restart.
+        - alert: FrigateMqttSilent
+          expr: |
+            (sum(rate(mqtt_message_total{namespace="home-automation", topic="frigate_stats"}[10m])) or vector(0)) == 0
+          for: 5m
+          annotations:
+            summary: >-
+              Frigate has not published stats to MQTT for 15 minutes.
+              Check the broker, then restart Frigate.
+          labels:
+            severity: warning

@@ -1,0 +1,11 @@
+---
+# Non-secret cluster-wide values for Flux postBuild substitution. Every app
+# Kustomization lists this ConfigMap in substituteFrom (patched in from
+# kubernetes/flux/cluster/ks.yaml); Flux 2.9 substitutes in strict mode, so
+# any variable an app references must be defined here or in cluster-secrets.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cluster-settings
+data:
+  TIMEZONE: America/New_York

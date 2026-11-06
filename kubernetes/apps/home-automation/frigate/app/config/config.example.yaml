@@ -1,0 +1,169 @@
+# Example Frigate config, NOT deployed. The real config (camera names,
+# zones, masks and addresses describe the property) is the SOPS-encrypted
+# Secret in ../config.sops.yaml. Global settings below match it; the
+# cameras are generic. {FRIGATE_*} values come from the frigate
+# ExternalSecret as environment variables, which Frigate expands itself.
+version: "0.18-0"
+
+mqtt:
+  enabled: true
+  host: mosquitto.home-automation.svc.cluster.local
+  user: "{FRIGATE_MQTT_USERNAME}"
+  password: "{FRIGATE_MQTT_PASSWORD}"
+  topic_prefix: frigate
+  client_id: frigate
+  
+# Add go2rtc configuration
+go2rtc:
+  streams:
+    cam_1:
+      - rtsp://{FRIGATE_CAM_1_USERNAME}:{FRIGATE_CAM_1_PASSWORD}@<camera-1-ip>:554/stream0
+    cam_1_sub:
+      - rtsp://{FRIGATE_CAM_1_USERNAME}:{FRIGATE_CAM_1_PASSWORD}@<camera-1-ip>:554/stream1
+    cam_2:
+      - rtsp://{FRIGATE_CAM_2_USERNAME}:{FRIGATE_CAM_2_PASSWORD}@<camera-2-ip>:554/stream0
+    cam_2_sub:
+      - rtsp://{FRIGATE_CAM_2_USERNAME}:{FRIGATE_CAM_2_PASSWORD}@<camera-2-ip>:554/stream1
+  webrtc:
+    candidates:
+      - stun:8555
+      - <frigate-lb-ip>:8555
+
+ffmpeg:
+  global_args: ["-hide_banner", "-loglevel", "warning"]
+  hwaccel_args: preset-intel-qsv-h264
+
+detectors:
+  coral:
+    type: edgetpu
+    device: usb
+
+auth:
+  enabled: true
+
+database:
+  path: /data/frigate.db
+
+cameras:
+  cam_1:
+    enabled: true
+    ffmpeg:
+      inputs:
+        - path: rtsp://127.0.0.1:8554/cam_1
+          input_args: preset-rtsp-restream
+          roles:
+            - record
+        - path: rtsp://127.0.0.1:8554/cam_1_sub
+          input_args: preset-rtsp-restream
+          roles:
+            - detect
+    live:
+      streams:
+        Main Stream: cam_1
+        Sub Stream: cam_1_sub
+    # Zones and masks are normalized (x,y) points, drawn in the Frigate UI.
+    zones:
+      zone_a:
+        coordinates: 0.0,1.0,0.8,1.0,0.2,0.3,0.0,0.2
+        objects: [person]
+    motion:
+      mask:
+        mask_1:
+          coordinates: 0.2,0.0,1.0,0.0,1.0,0.6,0.5,0.3
+    review:
+      alerts:
+        required_zones: [zone_a]
+  cam_2:
+    enabled: true
+    ffmpeg:
+      inputs:
+        - path: rtsp://127.0.0.1:8554/cam_2
+          input_args: preset-rtsp-restream
+          roles:
+            - record
+        - path: rtsp://127.0.0.1:8554/cam_2_sub
+          input_args: preset-rtsp-restream
+          roles:
+            - detect
+    live:
+      streams:
+        Main Stream: cam_2
+        Sub Stream: cam_2_sub
+
+birdseye:
+  enabled: True
+  restream: False
+  width: 1280
+  height: 720
+  quality: 8
+  mode: continuous
+  inactivity_threshold: 60
+  layout:
+    scaling_factor: 2.0
+    max_cameras: 8
+
+# Alerts are people only, and per camera only inside that camera's
+# required_zones. Other tracked objects are still recorded as detections.
+review:
+  alerts:
+    labels:
+      - person
+  detections:
+    labels:
+      - dog
+      - cat
+
+snapshots:
+  enabled: true
+  timestamp: true
+  bounding_box: true
+  crop: false
+  retain:
+    default: 14
+
+detect:
+  enabled: true
+  fps: 5
+  stationary:
+    interval: 10
+    threshold: 10
+
+motion:
+  threshold: 50
+
+objects:
+  track:
+    - person
+    - dog
+    - cat
+  # The stock detection model scores real and false detections alike, so
+  # these lean on shape: a standing person is taller than wide
+  # (ratio = width / height in detect pixels), and tiny boxes are noise.
+  filters:
+    person:
+      min_area: 4000
+      max_area: 1000000
+      min_score: 0.5
+      threshold: 0.72
+      max_ratio: 1.0
+    dog:
+      min_area: 3000
+      min_score: 0.5
+      threshold: 0.75
+    cat:
+      min_area: 2500
+      min_score: 0.5
+      threshold: 0.75
+
+record:
+  enabled: true
+  alerts:
+    retain:
+      days: 3
+      mode: active_objects
+  detections:
+    pre_capture: 3
+    post_capture: 3
+    retain:
+      days: 3
+      mode: active_objects

@@ -1,0 +1,17 @@
+---
+# yaml-language-server: $schema=https://kubernetes-schemas.pages.dev/rbac.authorization.k8s.io/clusterrolebinding_v1.json
+# Web UI users act as their identity provider groups (see the impersonation
+# settings in ../app/helmrelease.yaml). flux-web-user, created by the chart,
+# is read-only: no reconcile, suspend or restart actions.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: flux-web-user-admins
+subjects:
+  - kind: Group
+    name: authentik:${SECRET_AK_GROUP_ADMIN}
+    apiGroup: rbac.authorization.k8s.io
+roleRef:
+  kind: ClusterRole
+  name: flux-web-user
+  apiGroup: rbac.authorization.k8s.io

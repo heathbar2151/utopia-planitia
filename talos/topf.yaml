@@ -1,0 +1,65 @@
+# Talos machine configs for this cluster, assembled by topf
+# (https://postfinance.github.io/topf/) from this file plus the strategic
+# merge patches in all/, control-plane/ and node/<host>/ (merged in that
+# order, lexicographically within each directory). Files ending in .tpl are
+# Go-templated per node. Nothing is rendered to disk: `topf apply` builds
+# each node's config in memory, shows a redacted diff and asks first.
+#
+# Talos and Kubernetes upgrades themselves are done by tuppr
+# (kubernetes/apps/system-upgrade/tuppr/upgrades) - keep
+# talosVersion/kubernetesVersion here in step with its TalosUpgrade and
+# KubernetesUpgrade so `topf apply` never pushes an older install image or k8s
+# component version than what is running.
+clusterName: unimatrix-03
+clusterEndpoint: ENC[AES256_GCM,data:k7c8oPhO57IWOqUY0KdkVxwSjZ3gqYPAOYk=,iv:fGflypEFnfvou7FlRO0rld5mCC1kf1Tip8UuBcl0Xh8=,tag:mi6Yw3sbuEW12RPMArrn5Q==,type:str]
+# renovate: datasource=github-releases depName=siderolabs/talos
+talosVersion: v1.14.5
+# renovate: datasource=docker depName=ghcr.io/siderolabs/kubelet
+kubernetesVersion: v1.36.5
+# Talos Image Factory schematic (system extensions).
+schematicId: 0919add3444b3543ce760f167437808b941b01d4f46e7eb531ca00096ceb087e
+# Talos secrets bundle (CA, keys, tokens), SOPS-encrypted.
+secretsPath: talsecret.sops.yaml
+# Shared network values for the .tpl patches (.Data.<key>). This block, the
+# endpoint and each node's ip/data are SOPS-encrypted (see .sops.yaml) so
+# LAN addressing stays out of the public repo; versions stay plaintext for
+# Renovate. Edit with `sops topf.yaml`.
+data:
+  vip: ENC[AES256_GCM,data:J+9gGa9gpjH4lhBaww==,iv:P8JLwc+RO7crG30PsWZy4u4l8svC4W/FaLay4ByZFVg=,tag:5rHZu00d27BpgWo0ceFl1w==,type:str]
+  gateway: ENC[AES256_GCM,data:UUqabsZ4V/uP57g=,iv:v0IOwkwjtXghFfe+n8Uy8rCWEbQLUPOT8JMw0NrFvsk=,tag:+7erq7Ydtp3tq9swaHTO7Q==,type:str]
+  nodeSubnet: ENC[AES256_GCM,data:X8/5hSQiCVNOFt2VC6A=,iv:38HLgCaxuBkWe3xwY705BPjxfuX5JHcNFEQSs8AIjmI=,tag:bvk6t2PzK+g++DdJ0dRjpQ==,type:str]
+  nameserver: ENC[AES256_GCM,data:SgIpluib7EO4dF0=,iv:i+IJo4MvS0R3LH7r9A3ITJaiQ/DA2TjJlYAHnTkDz6c=,tag:qgtuLaHdwFEpS59OvUE3Jw==,type:str]
+  podSubnet: ENC[AES256_GCM,data:tDjwbSVPcwnJnJi+,iv:ndt8UNtlnLo+TzzrVriowjoWFHlk9MFM5Chbx2K+RJ0=,tag:ikKFqV+V1rAIBVD25BKFow==,type:str]
+  serviceSubnet: ENC[AES256_GCM,data:XCeG91yxGsxWRprF,iv:hSAV+vtF/0hljg77JaMf+OxuiTFyTb2iIEaJIeY1+wE=,tag:+qH1UJEEJgG+SAUAi6X2jw==,type:str]
+nodes:
+  - host: drone-01
+    ip: ENC[AES256_GCM,data:mfobCZPzXKJF2mBWqA==,iv:zf6ao3Vy5Im0xYKEbs78OwZyEiaGsB8Pb8oh9fFzGTk=,tag:tkLeo9gzjNqfvdzkm6TsUw==,type:str]
+    role: control-plane
+    data:
+      macAddr: ENC[AES256_GCM,data:ajc//BH3PZ/0cmxTlMfME9Y=,iv:Oob026Zs9ylrB3IgCkTCmHfZmFxMcmxXPOqnKyOcp6Q=,tag:obk0/0VFbkDLK68u3n86ww==,type:str]
+  - host: drone-02
+    ip: ENC[AES256_GCM,data:B5sFTh3KDu3A5Wz4Gw==,iv:CEtTlPH4iyJPicSao9DDGJksv63iJAkUy/ZfCBcfFJM=,tag:sr7Cz+I+B+sd4pfkRazCtg==,type:str]
+    role: control-plane
+    data:
+      macAddr: ENC[AES256_GCM,data:YSeL8GFLKe+9OTwld9ufDhk=,iv:yKfT34pWqkyaSc8xOGVtt7H/Bbj3Rrxi3owbLA/P+4I=,tag:f+46PucebDhKWGmZPVnUOQ==,type:str]
+  - host: drone-03
+    ip: ENC[AES256_GCM,data:QvteFn7OgrELH/6RxA==,iv:BhNoNLnA4odnu4M7oOz0P9Dfc7CvK6+ez5IjZz+TBd8=,tag:XSed34lINWB/bvgikSLXuQ==,type:str]
+    role: control-plane
+    data:
+      macAddr: ENC[AES256_GCM,data:mp74mIkU34hNJShiF+Ugrxc=,iv:Wo+UVARNmJMf9dc0bfY8BDzLM5iLyrjhuj5/z61Zz5I=,tag:yGv7WwGVMdpuC7YdtDKJMA==,type:str]
+sops:
+  age:
+    - enc: |
+        -----BEGIN AGE ENCRYPTED FILE-----
+        YWdlLWVuY3J5cHRpb24ub3JnL3YxCi0+IFgyNTUxOSBGMVpSOXJWOE8yeGo3WGNI
+        MUNUU3Iwd2RDdGJJYmtuOTk2WlhyR3d1a0ZBCisyRVk0OXgySE5YZFppbnkxWi8v
+        NWl6STdLcHkvUHBZUzVSMS9MZkZub00KLS0tIHJqeGtPMGRyZlFidTA0akZ1cFVE
+        YXV6UnRTZW1PeTdvSFA4RTcwWmQ1WWcKau5cHPtE8wNscd6tBPMZNsxc9szf7ZoW
+        inutcryGZ1khcw/M1Xn15kI/3Md69Hg4q9VPIJIczkz6Rts22RdGMg==
+        -----END AGE ENCRYPTED FILE-----
+      recipient: age1trsqyxl0g743l2tptfef3rcf2su6jz0f9meyp467vz8l29czus9qtrdp9p
+  encrypted_regex: ^(clusterEndpoint|ip|data)$
+  lastmodified: "2026-10-30T14:13:13Z"
+  mac: ENC[AES256_GCM,data:EhvZ/cfLaTWxx8WVqOBuI/3zaL5Y44Mt4dzJJpu53KwbxmdeTc59/SQz1ra2SLeobQk4wxLmrZQyDeINuPrd+4ha3Qd234x4NQRN0MTovHdm0O6VorF53C4j14aLMTTfItTf7BckgqABUTP22up4xrb7y1iH9+Fi6hGA6YFPXWY=,iv:iPNKtEPjxm+9ZlOCHQBA6SSRXvgdncg4lCLtw5fP9rc=,tag:BtZ6zN4MgJoCeWvYBq+yGQ==,type:str]
+  mac_only_encrypted: true
+  version: 3.13.3

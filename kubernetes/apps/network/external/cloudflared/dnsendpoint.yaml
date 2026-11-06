@@ -1,0 +1,15 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/externaldns.k8s.io/dnsendpoint_v1alpha1.json
+apiVersion: externaldns.k8s.io/v1alpha1
+kind: DNSEndpoint
+metadata:
+  name: cloudflared
+spec:
+  endpoints:
+    # Anchor record for envoy-external's target annotation (keep in sync
+    # with kubernetes/apps/network/envoy-gateway/app/envoy.yaml).
+    # external-dns can't derive it from envoy-external's Service (a private
+    # LB IP can't be a proxied record), so it's declared here.
+    - dnsName: "${SECRET_HOST_ENVOY_EXTERNAL}.${SECRET_DOMAIN}"
+      recordType: CNAME
+      targets: ["${SECRET_CLOUDFLARE_TUNNEL_ID}.cfargotunnel.com"]

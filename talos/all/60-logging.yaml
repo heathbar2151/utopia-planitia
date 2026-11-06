@@ -1,0 +1,16 @@
+# Ship Talos's own logs to the otel-talos DaemonSet on the same node
+# (kubernetes/apps/observability/otel-talos), which listens on localhost
+# only and forwards to Loki. If it isn't running, Talos drops the remote
+# copy and carries on; `talosctl logs` keeps working either way.
+machine:
+  logging:
+    destinations:
+      # Talos service logs: kubelet, etcd, containerd, apid, machined, ...
+      - endpoint: tcp://127.0.0.1:6050/
+        format: json_lines
+---
+# Kernel (kmsg / dmesg) logs.
+apiVersion: v1alpha1
+kind: KmsgLogConfig
+name: remote-kmsg
+url: tcp://127.0.0.1:6051/

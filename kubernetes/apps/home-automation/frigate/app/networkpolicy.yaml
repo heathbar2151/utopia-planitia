@@ -1,0 +1,50 @@
+---
+# yaml-language-server: $schema=https://kubernetes-schemas.pages.dev/cilium.io/ciliumnetworkpolicy_v2.json
+# Frigate's API, RTSP, WebRTC and go2rtc ports have no login of their own,
+# so only the listed clients may connect; everything else is dropped. The
+# web UI is reached through the internal gateway, which adds the Authentik
+# login. LoadBalancer traffic keeps the client's source address (DSR), so
+# fromCIDR matches the real client. Ingress only.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: frigate-ingress
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: frigate
+      app.kubernetes.io/controller: frigate
+  ingress:
+    # Kubelet probes.
+    - fromEntities: ["host"]
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: network
+            gateway.envoyproxy.io/owning-gateway-name: envoy-internal
+      toPorts:
+        - ports:
+            - port: "5000"
+              protocol: TCP
+    - fromCIDR: ["${SECRET_HA_PI_IP}/32"]
+      toPorts:
+        - ports:
+            - port: "5000"
+              protocol: TCP
+            - port: "8554"
+              protocol: TCP
+            - port: "8555"
+              protocol: TCP
+            - port: "8555"
+              protocol: UDP
+            - port: "1984"
+              protocol: TCP
+    # WebRTC media. Viewers' browsers and apps connect here directly, but
+    # only for a session already negotiated through the API, so this port
+    # alone gives no access to the cameras.
+    - fromCIDR: ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"]
+      toPorts:
+        - ports:
+            - port: "8555"
+              protocol: TCP
+            - port: "8555"
+              protocol: UDP

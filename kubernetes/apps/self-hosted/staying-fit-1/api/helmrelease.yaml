@@ -1,0 +1,151 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/bjw-s-labs/helm-charts/main/charts/other/app-template/schemas/helmrelease-helm-v2.schema.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: &app ${SECRET_SF1_NAME}-api
+spec:
+  interval: 30m
+  chartRef:
+    kind: OCIRepository
+    name: ${SECRET_SF1_NAME}-api
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    cleanupOnFail: true
+    remediation:
+      strategy: rollback
+      retries: 3
+  values:
+    controllers:
+      ${SECRET_SF1_NAME}-api:
+        # Multi-instance, same as staying-fit-2:
+        # 2 replicas, rolling updates gated on /readyz instead of Recreate.
+        # The images PVC is CephFS (RWX), so replicas can sit on any node.
+        replicas: 2
+        strategy: RollingUpdate
+        # Keep the 2 replicas on different nodes so one node going down
+        # can't take the whole service with it. ScheduleAnyway, not
+        # DoNotSchedule: on a small cluster a node outage should degrade to
+        # co-located replicas, not a Pending pod. pod-template-hash scopes
+        # the skew to the current ReplicaSet, so a rollout re-spreads.
+        pod:
+          topologySpreadConstraints:
+            - maxSkew: 1
+              topologyKey: kubernetes.io/hostname
+              whenUnsatisfiable: ScheduleAnyway
+              labelSelector:
+                matchLabels:
+                  app.kubernetes.io/controller: ${SECRET_SF1_NAME}-api
+              matchLabelKeys:
+                - pod-template-hash
+        annotations:
+          reloader.stakater.com/auto: "true"
+        initContainers:
+          init-db:
+            image:
+              repository: ghcr.io/home-operations/postgres-init
+              tag: 18
+            envFrom:
+              - secretRef:
+                  name: ${SECRET_SF1_NAME}-init-db-credentials
+        containers:
+          app:
+            image:
+              repository: ghcr.io/bluetellarite/staying-fit-api
+              tag: v0.66.0
+            env:
+              RUST_LOG: info
+              # OpenTelemetry tracing: setting the endpoint
+              # turns it on. gRPC only, so the collector's :4317. Service name
+              # is the HelmRelease name so each instance is its own node in
+              # the service graph. Gatus probes are skipped app-side
+              # (TRACE_SKIP_USER_AGENTS defaults to Gatus/1.0).
+              OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector.observability.svc.cluster.local:4317
+              OTEL_SERVICE_NAME: ${SECRET_SF1_NAME}-api
+              OTEL_RESOURCE_ATTRIBUTES: deployment.environment.name=${SECRET_SF1_ENV}
+              IMAGES_DIR: /data/images
+              APP_TZ: America/New_York
+              # File path, not a secret value - the actual key bytes come
+              # from the jwt Secret volume mounted below.
+              JWT_PUBLIC_KEY_PATH: /app/data/jwt/public.pem
+            envFrom:
+              - secretRef:
+                  name: ${SECRET_SF1_NAME}-db-credentials
+              - secretRef:
+                  name: ${SECRET_SF1_NAME}-auth-credentials
+              # Not optional: without it api would accept any caller on the
+              # pre-login account routes. A missing Secret blocks new pods
+              # instead, while the old ones keep serving.
+              - secretRef:
+                  name: ${SECRET_SF1_NAME}-internal-api-credentials
+            # Keep serving for 5s after the pod is marked for deletion, before
+            # SIGTERM starts graceful shutdown - gives the gateway and
+            # Cilium's service LB time to stop routing new connections here
+            # (without it, connections can be refused briefly at each old pod's
+            # termination). Native sleep action - the FROM scratch images have
+            # no `sleep` binary for an exec hook.
+            lifecycle:
+              preStop:
+                sleep:
+                  seconds: 5
+            # /healthz is liveness (no dependency checks),
+            # /readyz is readiness (DB reachable).
+            probes:
+              liveness:
+                enabled: true
+                custom: true
+                spec:
+                  httpGet:
+                    path: /healthz
+                    port: 3000
+                  initialDelaySeconds: 5
+                  periodSeconds: 20
+                  timeoutSeconds: 1
+                  failureThreshold: 3
+              readiness:
+                enabled: true
+                custom: true
+                spec:
+                  httpGet:
+                    path: /readyz
+                    port: 3000
+                  initialDelaySeconds: 2
+                  periodSeconds: 10
+                  timeoutSeconds: 3
+                  failureThreshold: 3
+            resources:
+              requests:
+                cpu: 15m
+                memory: 128Mi
+              limits:
+                memory: 256Mi
+    defaultPodOptions:
+      imagePullSecrets:
+        - name: staying-fit-ghcr-secret
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile: { type: RuntimeDefault }
+    service:
+      app:
+        controller: *app
+        ports:
+          http:
+            port: 3000
+    persistence:
+      images:
+        # Existing PVC holding uploaded images; reused as-is, never recreated.
+        existingClaim: ${SECRET_SF1_NAME}
+        globalMounts:
+          - path: /data/images
+      jwt:
+        type: secret
+        name: ${SECRET_SF1_NAME}-jwt
+        globalMounts:
+          - path: /app/data/jwt
+            readOnly: true

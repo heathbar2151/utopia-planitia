@@ -1,0 +1,13 @@
+---
+# yaml-language-server: $schema=https://kubernetes-schemas.pages.dev/policy/poddisruptionbudget_v1.json
+# Voluntary disruptions (node drains, Talos upgrades) take at most one of the
+# 2 replicas at a time.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: authentik-server
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/controller: authentik-server
