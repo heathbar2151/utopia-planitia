@@ -56,7 +56,7 @@ _... automated via [Flux](https://fluxcd.io), [Renovate](https://github.com/reno
 ---
 
 ## 🤝 Thanks
-
+- My amazing wife for putting up with... ME. Without her I would not be where I am today.
 - [onedr0p](https://github.com/onedr0p) for [cluster-template](https://github.com/onedr0p/cluster-template), the starting point for all of this, and [home-ops](https://github.com/onedr0p/home-ops).
 - The [Home Operations](https://discord.gg/home-operations) Discord community and the [home-operations](https://github.com/home-operations) projects.
 - [joryirving/home-ops](https://github.com/joryirving/home-ops) - referenced a lot early on. 
