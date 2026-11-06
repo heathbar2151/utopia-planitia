@@ -113,6 +113,16 @@
       allowedVersions: '/^v1\\.36\\./',
     },
     {
+      description: [
+        'staying-fit images are private and bumped by hand after a release review, so Renovate skips them',
+      ],
+      matchPackageNames: [
+        'ghcr.io/bluetellarite/staying-fit-api',
+        'ghcr.io/bluetellarite/staying-fit-web',
+      ],
+      enabled: false,
+    },
+    {
       matchUpdateTypes: [
         'major',
       ],
