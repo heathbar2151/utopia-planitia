@@ -48,7 +48,7 @@ spec:
               repository: ghcr.io/bluetellarite/staying-fit-web
               # Bumped alongside api - keep these two in lockstep, even
               # though web itself has no direct change.
-              tag: v0.66.0
+              tag: v0.67.0
             env:
               RUST_LOG: info
               # OpenTelemetry tracing: setting the endpoint
