@@ -54,7 +54,7 @@ spec:
           app:
             image:
               repository: ghcr.io/bluetellarite/staying-fit-api
-              tag: v0.66.0
+              tag: v0.67.0
             env:
               RUST_LOG: info
               # OpenTelemetry tracing: setting the endpoint
