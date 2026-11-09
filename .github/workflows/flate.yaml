@@ -1,0 +1,101 @@
+---
+# yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
+name: "Flate"
+
+on:
+  pull_request:
+    branches: ["main"]
+    paths:
+      - "kubernetes/**"
+      - ".github/flate/**"
+      - ".github/workflows/flate.yaml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.number || github.ref }}
+  cancel-in-progress: true
+
+# The setup action exports FLATE_BASE (the default branch), so test and diff
+# both run in changed-only mode: they render what the PR touches and the
+# inputs it needs. Fork PRs get a read-only GITHUB_TOKEN, so the diff comment
+# is skipped (continue-on-error) rather than failing.
+jobs:
+  flate:
+    name: Flate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup flate
+        uses: home-operations/flate/action@bbb6ebc344da051752dbdb1b413860ceffcfb63d # v0.7.3
+        with:
+          cache: "true"
+
+      # cluster-secrets.sops.yaml can't be decrypted here, so supply the same
+      # fake Secret in every namespace whose Kustomizations substitute from it.
+      - name: Build CI inputs
+        env:
+          SUPPLY: ${{ runner.temp }}/flate-supply.yaml
+        run: |
+          fixture=.github/flate/cluster-secrets.yaml
+          real=kubernetes/components/common/cluster-secrets.sops.yaml
+          if ! diff <(yq '.stringData | keys | .[]' "$real" | sort) \
+                    <(yq '.stringData | keys | .[]' "$fixture" | sort); then
+            echo "::error file=$fixture::Keys differ from $real (lines above: < real only, > fixture only)"
+            exit 1
+          fi
+          : > "$SUPPLY"
+          for ns in flux-system $(find kubernetes/apps -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort); do
+            NS="$ns" yq '.metadata.namespace = strenv(NS)' "$fixture" >> "$SUPPLY"
+          done
+          echo "Supplied cluster-secrets in $(grep -c '^kind: Secret' "$SUPPLY") namespaces"
+
+      - name: Test
+        env:
+          SUPPLY: ${{ runner.temp }}/flate-supply.yaml
+        run: flate test --supply "$SUPPLY" --no-progress
+
+      - name: Diff
+        id: diff
+        if: ${{ !cancelled() }}
+        env:
+          SUPPLY: ${{ runner.temp }}/flate-supply.yaml
+          DIFF: ${{ runner.temp }}/flate-diff.md
+        run: |
+          raw="$RUNNER_TEMP/flate-diff.txt"
+          set +e
+          flate diff all --supply "$SUPPLY" --no-progress -o github > "$raw"
+          rc=$?
+          set -e
+          if [ -s "$raw" ]; then
+            # Fence the output: its "#" and "+" lines would otherwise render
+            # as Markdown headings and lists. PR comments are capped at
+            # 65536 characters, so the comment gets at most 60000 bytes of
+            # diff; the job summary keeps the full output.
+            fence() { printf '### Flate diff\n\n```diff\n'; cat; printf '\n```\n'; }
+            fence < "$raw" >> "$GITHUB_STEP_SUMMARY"
+            if [ "$(wc -c < "$raw")" -gt 60000 ]; then
+              { head -c 60000 "$raw" | fence; printf '\n_Diff truncated; see the job summary for the full output._\n'; } > "$DIFF"
+            else
+              fence < "$raw" > "$DIFF"
+            fi
+            echo "has-diff=true" >> "$GITHUB_OUTPUT"
+          fi
+          exit "$rc"
+
+      - name: Comment
+        if: ${{ !cancelled() && steps.diff.outputs.has-diff == 'true' }}
+        continue-on-error: true
+        uses: mshick/add-pr-comment@ec328af66588ab8f77cdeb2c264f14aba45bbf59 # v3.12.0
+        with:
+          message-id: flate-diff
+          message-path: ${{ runner.temp }}/flate-diff.md
