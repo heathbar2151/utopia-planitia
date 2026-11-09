@@ -41,6 +41,7 @@ spec:
               matchLabelKeys:
                 - pod-template-hash
         annotations:
+          ci-smoke-test: "do-not-merge"
           reloader.stakater.com/auto: "true"
         initContainers:
           init-db:
