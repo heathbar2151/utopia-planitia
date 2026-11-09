@@ -11,3 +11,4 @@ resources:
   - ./scheduledbackup.yaml
   - ./ca-public.yaml
   - ./podmonitor.yaml
+  - ./networkpolicy.yaml
