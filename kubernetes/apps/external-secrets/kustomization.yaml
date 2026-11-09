@@ -5,6 +5,8 @@ kind: Kustomization
 namespace: external-secrets
 components:
   - ../../components/common
+  - ../../components/network-policy
 resources:
+  - ./networkpolicy.yaml
   - ./external-secrets/ks.yaml
   - ./onepassword/ks.yaml

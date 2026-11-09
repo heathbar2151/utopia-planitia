@@ -1,0 +1,47 @@
+---
+# yaml-language-server: $schema=https://kubernetes-schemas.pages.dev/cilium.io/ciliumnetworkpolicy_v2.json
+# Additions to the baseline component for this namespace. Kept here, not
+# in each app's folder, so they apply in the same reconcile as the
+# baseline.
+#
+# The external-secrets controllers work through the Kubernetes API. Pinned
+# to 6443: the kube-apiserver entity covers the node addresses, and
+# without a port it would open every port on them.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: external-secrets-api
+spec:
+  endpointSelector:
+    matchExpressions:
+      - key: app.kubernetes.io/name
+        operator: In
+        values:
+          - external-secrets
+          - external-secrets-cert-controller
+          - external-secrets-webhook
+  egress:
+    - toEntities: ["kube-apiserver"]
+      toPorts:
+        - ports:
+            - port: "6443"
+              protocol: TCP
+---
+# yaml-language-server: $schema=https://kubernetes-schemas.pages.dev/cilium.io/ciliumnetworkpolicy_v2.json
+# The API server calls the validating webhook for every ExternalSecret and
+# SecretStore change, from whichever node serves the request. The webhooks
+# fail closed, so without this rule those writes are rejected cluster-wide.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: external-secrets-webhook
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: external-secrets-webhook
+  ingress:
+    - fromEntities: ["kube-apiserver"]
+      toPorts:
+        - ports:
+            - port: "10250"
+              protocol: TCP
