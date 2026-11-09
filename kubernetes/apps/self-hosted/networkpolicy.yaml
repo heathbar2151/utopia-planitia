@@ -1,0 +1,28 @@
+---
+# yaml-language-server: $schema=https://kubernetes-schemas.pages.dev/cilium.io/ciliumnetworkpolicy_v2.json
+# Additions to the baseline component for this namespace. Kept here, not
+# in each app's folder, so they apply in the same reconcile as the
+# baseline and public traffic is never blocked in between.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: public-web
+spec:
+  endpointSelector:
+    matchExpressions:
+      - key: app.kubernetes.io/controller
+        operator: In
+        values:
+          - ${SECRET_SF1_NAME}-web
+          - ${SECRET_SF3_NAME}-web
+          - ${SECRET_SF4_NAME}-web
+  ingress:
+    # The staying-fit instances with a public route.
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: network
+            gateway.envoyproxy.io/owning-gateway-name: envoy-external
+      toPorts:
+        - ports:
+            - port: "3000"
+              protocol: TCP
