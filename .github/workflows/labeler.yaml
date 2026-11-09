@@ -2,12 +2,12 @@
 # yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
 name: "Labeler"
 
-# pull_request_target runs this file from main with a write token, so it must
-# never check out or run PR code. actions/labeler only reads the PR's changed
-# file list through the API.
+# Runs on pull_request, not pull_request_target: GitHub blocks
+# pull_request_target on public repos by default. Same-repo PRs get the job's
+# write token; fork PRs get a read-only one and simply aren't labeled.
 on:
   workflow_dispatch:
-  pull_request_target:
+  pull_request:
     branches: ["main"]
 
 permissions: {}
