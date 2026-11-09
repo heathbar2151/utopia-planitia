@@ -71,20 +71,25 @@ jobs:
           SUPPLY: ${{ runner.temp }}/flate-supply.yaml
           DIFF: ${{ runner.temp }}/flate-diff.md
         run: |
+          raw="$RUNNER_TEMP/flate-diff.txt"
           set +e
-          flate diff all --supply "$SUPPLY" --no-progress -o github > "$DIFF"
+          flate diff all --supply "$SUPPLY" --no-progress -o github > "$raw"
           rc=$?
           set -e
-          # PR comments are capped at 65536 characters.
-          if [ "$(wc -c < "$DIFF")" -gt 60000 ]; then
-            head -c 60000 "$DIFF" > "$DIFF.tmp"
-            printf '\n\n_Diff truncated; see the job summary for the full output._\n' >> "$DIFF.tmp"
-            cat "$DIFF" >> "$GITHUB_STEP_SUMMARY"
-            mv "$DIFF.tmp" "$DIFF"
-          else
-            cat "$DIFF" >> "$GITHUB_STEP_SUMMARY"
+          if [ -s "$raw" ]; then
+            # Fence the output: its "#" and "+" lines would otherwise render
+            # as Markdown headings and lists. PR comments are capped at
+            # 65536 characters, so the comment gets at most 60000 bytes of
+            # diff; the job summary keeps the full output.
+            fence() { printf '### Flate diff\n\n```diff\n'; cat; printf '\n```\n'; }
+            fence < "$raw" >> "$GITHUB_STEP_SUMMARY"
+            if [ "$(wc -c < "$raw")" -gt 60000 ]; then
+              { head -c 60000 "$raw" | fence; printf '\n_Diff truncated; see the job summary for the full output._\n'; } > "$DIFF"
+            else
+              fence < "$raw" > "$DIFF"
+            fi
+            echo "has-diff=true" >> "$GITHUB_OUTPUT"
           fi
-          if [ -s "$DIFF" ]; then echo "has-diff=true" >> "$GITHUB_OUTPUT"; fi
           exit "$rc"
 
       - name: Comment
