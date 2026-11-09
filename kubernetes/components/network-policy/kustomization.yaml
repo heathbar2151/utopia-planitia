@@ -1,0 +1,12 @@
+---
+# yaml-language-server: $schema=https://json.schemastore.org/kustomization
+# Baseline ingress and egress fence for every pod in a namespace. A
+# namespace opts in by listing this component in its kustomization.yaml;
+# it is deliberately not part of components/common. App-specific needs
+# (Kubernetes API access, the external gateway, LAN clients, other
+# namespaces) go in the app's own networkpolicy.yaml, and Cilium allows
+# the union of every policy that selects a pod.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+resources:
+  - ./networkpolicy.yaml
