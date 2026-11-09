@@ -1,0 +1,31 @@
+---
+# yaml-language-server: $schema=https://kubernetes-schemas.pages.dev/cilium.io/ciliumnetworkpolicy_v2.json
+# Additions to the baseline component for this namespace. Kept here, not
+# in each app's folder, so they apply in the same reconcile as the
+# baseline.
+#
+# Git over SSH through the LoadBalancer service. Clients keep their LAN
+# address when the pod is on the receiving node; otherwise the forwarding
+# node shows up as the source.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: gitea-ssh
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/controller: gitea-server
+  ingress:
+    - fromCIDRSet:
+        - cidr: 10.0.0.0/8
+        - cidr: 172.16.0.0/12
+        - cidr: 192.168.0.0/16
+      toPorts:
+        - ports:
+            - port: "22"
+              protocol: TCP
+    - fromEntities: ["remote-node"]
+      toPorts:
+        - ports:
+            - port: "22"
+              protocol: TCP

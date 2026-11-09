@@ -5,5 +5,7 @@ kind: Kustomization
 namespace: devops
 components:
   - ../../components/common
+  - ../../components/network-policy
 resources:
+  - ./networkpolicy.yaml
   - ./gitea/ks.yaml
