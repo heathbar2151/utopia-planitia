@@ -2,6 +2,9 @@
 serviceMonitor:
   create: true
 web:
+  # Replaced by the CiliumNetworkPolicies in networkpolicy.yaml.
+  networkPolicy:
+    create: false
   # Web UI login config, built by the ExternalSecret in ../web. The operator
   # serves the UI only after a valid config arrives, and ignores an invalid
   # update, so the operator itself never fails over it.
