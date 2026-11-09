@@ -5,7 +5,9 @@ kind: Kustomization
 namespace: self-hosted
 components:
   - ../../components/common
+  - ../../components/network-policy
 resources:
+  - ./networkpolicy.yaml
   - ./minio/ks.yaml
   - ./staying-fit-1/ks.yaml
   - ./staying-fit-2/ks.yaml
