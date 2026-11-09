@@ -1,0 +1,49 @@
+---
+# yaml-language-server: $schema=https://kubernetes-schemas.pages.dev/cilium.io/ciliumnetworkpolicy_v2.json
+# Ingress fence for MinIO, which holds the CNPG backups. Clients were taken
+# from two days of Hubble flows (2026-11-07/09). Egress is left open.
+# Volsync mover pods in this namespace are not selected.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: minio
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/controller: minio
+  ingress:
+    # Kubelet probes on the S3 port.
+    - fromEntities: ["host"]
+    # CNPG backups and WAL archiving, plus restore and join jobs that read
+    # them back. Any pod of a CNPG cluster, not only the instances.
+    - fromEndpoints:
+        - matchExpressions:
+            - key: k8s:io.kubernetes.pod.namespace
+              operator: In
+              values: [database]
+            - key: cnpg.io/cluster
+              operator: Exists
+      toPorts:
+        - ports:
+            - port: "9000"
+              protocol: TCP
+    # The s3 (9000) and console (9001) routes, internal gateway only.
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: network
+            gateway.envoyproxy.io/owning-gateway-name: envoy-internal
+      toPorts:
+        - ports:
+            - port: "9000"
+              protocol: TCP
+            - port: "9001"
+              protocol: TCP
+    # Metrics are served on the S3 port.
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: observability
+            app.kubernetes.io/name: prometheus
+      toPorts:
+        - ports:
+            - port: "9000"
+              protocol: TCP
