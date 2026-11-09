@@ -1,0 +1,41 @@
+---
+# yaml-language-server: $schema=https://kubernetes-schemas.pages.dev/cilium.io/ciliumnetworkpolicy_v2.json
+# Ingress fence for the postgres-vector cluster, same shape as the
+# postgres16 policy. Only the Immich server and Zulip use it; Immich's
+# machine-learning pod and Zulip's memcached share their release labels,
+# so the controller label tells them apart.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: postgres-vector
+spec:
+  endpointSelector:
+    matchLabels:
+      cnpg.io/cluster: postgres-vector
+  ingress:
+    # Kubelet probes on the status port.
+    - fromEntities: ["host"]
+    # Replication between instances, the CNPG operator (status port 8000)
+    # and the barman-cloud plugin.
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: database
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: media
+            app.kubernetes.io/controller: immich
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: self-hosted
+            app.kubernetes.io/controller: zulip
+      toPorts:
+        - ports:
+            - port: "5432"
+              protocol: TCP
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: observability
+            app.kubernetes.io/name: prometheus
+      toPorts:
+        - ports:
+            - port: "9187"
+              protocol: TCP

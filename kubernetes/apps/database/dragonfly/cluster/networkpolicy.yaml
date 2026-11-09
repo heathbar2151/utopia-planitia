@@ -1,0 +1,48 @@
+---
+# yaml-language-server: $schema=https://kubernetes-schemas.pages.dev/cilium.io/ciliumnetworkpolicy_v2.json
+# Ingress fence for the Dragonfly pods. Clients were taken from two days
+# of Hubble flows (2026-11-07/09). Egress is left open.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: dragonfly
+spec:
+  endpointSelector:
+    matchLabels:
+      app: dragonfly
+  ingress:
+    # Kubelet probes on the admin port.
+    - fromEntities: ["host"]
+    # Replication between replicas and the Dragonfly operator (admin port).
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: database
+    # Gitea and the four staying-fit web pods.
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: devops
+            app.kubernetes.io/controller: gitea-server
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: self-hosted
+            app.kubernetes.io/controller: ${SECRET_SF1_NAME}-web
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: self-hosted
+            app.kubernetes.io/controller: ${SECRET_SF2_NAME}-web
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: self-hosted
+            app.kubernetes.io/controller: ${SECRET_SF3_NAME}-web
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: self-hosted
+            app.kubernetes.io/controller: ${SECRET_SF4_NAME}-web
+      toPorts:
+        - ports:
+            - port: "6379"
+              protocol: TCP
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: observability
+            app.kubernetes.io/name: prometheus
+      toPorts:
+        - ports:
+            - port: "9999"
+              protocol: TCP

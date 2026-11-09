@@ -1,0 +1,60 @@
+---
+# yaml-language-server: $schema=https://kubernetes-schemas.pages.dev/cilium.io/ciliumnetworkpolicy_v2.json
+# Ingress fence for the postgres16 cluster. Clients were taken from two
+# days of Hubble flows (2026-11-07/09); egress is left open (backups go
+# to MinIO). Clients are selected by app-template's controller label.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: postgres16
+spec:
+  endpointSelector:
+    matchLabels:
+      cnpg.io/cluster: postgres16
+  ingress:
+    # Kubelet probes on the status port.
+    - fromEntities: ["host"]
+    # Replication between instances, the CNPG operator (status port 8000)
+    # and the barman-cloud plugin.
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: database
+    # Apps with a database on this cluster. The four staying-fit instances
+    # connect from their api pods only.
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: devops
+            app.kubernetes.io/controller: gitea-server
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: observability
+            app.kubernetes.io/controller: gatus
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: security
+            app.kubernetes.io/controller: authentik-server
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: security
+            app.kubernetes.io/controller: authentik-worker
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: self-hosted
+            app.kubernetes.io/controller: ${SECRET_SF1_NAME}-api
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: self-hosted
+            app.kubernetes.io/controller: ${SECRET_SF2_NAME}-api
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: self-hosted
+            app.kubernetes.io/controller: ${SECRET_SF3_NAME}-api
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: self-hosted
+            app.kubernetes.io/controller: ${SECRET_SF4_NAME}-api
+      toPorts:
+        - ports:
+            - port: "5432"
+              protocol: TCP
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: observability
+            app.kubernetes.io/name: prometheus
+      toPorts:
+        - ports:
+            - port: "9187"
+              protocol: TCP
