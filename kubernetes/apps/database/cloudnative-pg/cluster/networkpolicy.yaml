@@ -46,6 +46,9 @@ spec:
         - matchLabels:
             k8s:io.kubernetes.pod.namespace: self-hosted
             app.kubernetes.io/controller: ${SECRET_SF4_NAME}-api
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: self-hosted
+            app.kubernetes.io/controller: ${SECRET_SF5_NAME}-api
       toPorts:
         - ports:
             - port: "5432"

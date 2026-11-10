@@ -34,6 +34,9 @@ spec:
         - matchLabels:
             k8s:io.kubernetes.pod.namespace: self-hosted
             app.kubernetes.io/controller: ${SECRET_SF4_NAME}-web
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: self-hosted
+            app.kubernetes.io/controller: ${SECRET_SF5_NAME}-web
       toPorts:
         - ports:
             - port: "6379"

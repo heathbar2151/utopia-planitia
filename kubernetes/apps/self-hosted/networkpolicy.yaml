@@ -16,6 +16,7 @@ spec:
           - ${SECRET_SF1_NAME}-web
           - ${SECRET_SF3_NAME}-web
           - ${SECRET_SF4_NAME}-web
+          - ${SECRET_SF5_NAME}-web
   ingress:
     # The staying-fit instances with a public route.
     - fromEndpoints:
