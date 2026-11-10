@@ -264,6 +264,9 @@ data:
           name: Provider for ${SECRET_SF1_AK_NAME}
         attrs:
           client_type: confidential
+          grant_types:
+            - authorization_code
+            - refresh_token
           client_id: XIkjcSDxton2Am7U7putXQLT3f5JF6VZGJFzVinz
           issuer_mode: per_provider
           sub_mode: hashed_user_id
@@ -332,6 +335,9 @@ data:
           name: Provider for ${SECRET_SF2_AK_NAME}
         attrs:
           client_type: confidential
+          grant_types:
+            - authorization_code
+            - refresh_token
           client_id: xCEIaE1rmPhB4fpwW9Gjlu3C3Aj6HGOOJWVJScvU
           issuer_mode: per_provider
           sub_mode: hashed_user_id
@@ -400,6 +406,9 @@ data:
           name: Provider for ${SECRET_SF3_AK_NAME}
         attrs:
           client_type: confidential
+          grant_types:
+            - authorization_code
+            - refresh_token
           client_id: sTbe8QIB5UAGJrRalktyg819YCmMNowGtaZttMxC
           issuer_mode: per_provider
           sub_mode: hashed_user_id
@@ -458,6 +467,9 @@ data:
           name: Provider for ${SECRET_SF4_AK_NAME}
         attrs:
           client_type: confidential
+          grant_types:
+            - authorization_code
+            - refresh_token
           client_id: fpSSoLpNWXoJLcF3thzpEpsxuB3fItPz9tFoY2do
           issuer_mode: per_provider
           sub_mode: hashed_user_id
@@ -515,6 +527,9 @@ data:
           name: Provider for ${SECRET_SF5_AK_NAME}
         attrs:
           client_type: confidential
+          grant_types:
+            - authorization_code
+            - refresh_token
           client_id: etKAUDbbqhEQMNtqQhs0y8lYCqCovuJ93zIV6fSo
           issuer_mode: per_provider
           sub_mode: hashed_user_id
