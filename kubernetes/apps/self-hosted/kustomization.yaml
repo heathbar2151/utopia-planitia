@@ -13,5 +13,6 @@ resources:
   - ./staying-fit-2/ks.yaml
   - ./staying-fit-3/ks.yaml
   - ./staying-fit-4/ks.yaml
+  - ./staying-fit-5/ks.yaml
   - ./zulip/ks.yaml
   - ./donetick/ks.yaml
