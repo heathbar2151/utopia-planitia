@@ -174,7 +174,7 @@ spec:
           app:
             image:
               repository: docker.io/library/rabbitmq
-              tag: 4.4.0@sha256:71be6ca71cd3ad92f29b354ec381b1ee587894aaaac21f185b8cf43fb50d3feb
+              tag: 4.4.0@sha256:1166559c9e77b0208b9d96bfaf265ddbdd491ce3cebb8cf990aabe9274f16d2c
             # Event queue between Zulip's processes - nothing worth persisting.
             envFrom:
               - secretRef:
