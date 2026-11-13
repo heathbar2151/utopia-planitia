@@ -96,6 +96,17 @@ spec:
             enabled: true
           - name: rook
             enabled: true
+      # The active mgr leaks ~150 MiB/day on Ceph 20.2.4, in steps at the
+      # hourly volsync snapshot window. The chart's 1Gi limit OOMed it about
+      # every 6 days; 2Gi stretches that while the leak is reported upstream.
+      # Other daemons keep the chart defaults (Helm merges this map).
+      resources:
+        mgr:
+          requests:
+            cpu: 500m
+            memory: 512Mi
+          limits:
+            memory: 2Gi
       network:
         provider: host
         connections:
