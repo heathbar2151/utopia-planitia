@@ -35,6 +35,9 @@ spec:
       VOLSYNC_STORAGECLASS: ceph-filesystem
       VOLSYNC_ACCESSMODES: ReadWriteMany
       VOLSYNC_SNAPSHOTCLASS: csi-ceph-filesystem
+      # Temporary: CephFS sources run at :40 instead of :10 to separate their
+      # mgr memory step from the RBD ones (Ceph mgr leak investigation).
+      VOLSYNC_SCHEDULE: "40 * * * *"
       VOLSYNC_SNAP_ACCESSMODES: ReadWriteMany
 ---
 # yaml-language-server: $schema=https://kubernetes-schemas.pages.dev/kustomize.toolkit.fluxcd.io/kustomization_v1.json
