@@ -137,3 +137,66 @@ spec:
         - ports:
             - port: "4317"
               protocol: TCP
+---
+# yaml-language-server: $schema=https://kubernetes-schemas.pages.dev/cilium.io/ciliumnetworkpolicy_v2.json
+# Prod staying-fit api: no internet. It opts out of the baseline (pod label
+# network-policy/baseline: exclude), so these are its only rules. Built from
+# Hubble: api starts connections only to Postgres, the OTel collector and,
+# from v0.68.0, the integrations; web is its only caller.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: ${SECRET_SF1_NAME}-api
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/controller: ${SECRET_SF1_NAME}-api
+  ingress:
+    # Kubelet probes.
+    - fromEntities: ["host"]
+    - fromEndpoints:
+        - matchLabels:
+            app.kubernetes.io/controller: ${SECRET_SF1_NAME}-web
+      toPorts:
+        - ports:
+            - port: "3000"
+              protocol: TCP
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: observability
+            app.kubernetes.io/name: prometheus
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+    # Postgres (the init-db container too); the database namespace's own
+    # policy admits this api.
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: database
+      toPorts:
+        - ports:
+            - port: "5432"
+              protocol: TCP
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: observability
+            app.kubernetes.io/instance: otel-collector
+      toPorts:
+        - ports:
+            - port: "4317"
+              protocol: TCP
+    - toEndpoints:
+        - matchLabels:
+            app.kubernetes.io/instance: staying-fit-integrations
+      toPorts:
+        - ports:
+            - port: "3010"
+              protocol: TCP
