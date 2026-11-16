@@ -31,6 +31,11 @@ spec:
         # co-located replicas, not a Pending pod. pod-template-hash scopes
         # the skew to the current ReplicaSet, so a rollout re-spreads.
         pod:
+          labels:
+            # No internet: fenced only by its own policy in the namespace
+            # networkpolicy.yaml. Outbound lookups go through the
+            # staying-fit-integrations service.
+            network-policy/baseline: exclude
           topologySpreadConstraints:
             - maxSkew: 1
               topologyKey: kubernetes.io/hostname
@@ -54,7 +59,7 @@ spec:
           app:
             image:
               repository: ghcr.io/bluetellarite/staying-fit-api
-              tag: v0.67.0
+              tag: v0.68.0
             env:
               RUST_LOG: info
               # OpenTelemetry tracing: setting the endpoint
@@ -70,6 +75,11 @@ spec:
               # File path, not a secret value - the actual key bytes come
               # from the jwt Secret volume mounted below.
               JWT_PUBLIC_KEY_PATH: /app/data/jwt/public.pem
+              # Food lookups go through the shared integrations service;
+              # api itself has no internet access. Unset a URL to turn
+              # that lookup off.
+              USDA_INTEGRATION_URL: http://staying-fit-integrations-usda.self-hosted.svc.cluster.local:3010
+              OFF_INTEGRATION_URL: http://staying-fit-integrations-off.self-hosted.svc.cluster.local:3010
             envFrom:
               - secretRef:
                   name: ${SECRET_SF3_NAME}-db-credentials
@@ -80,6 +90,10 @@ spec:
               # instead, while the old ones keep serving.
               - secretRef:
                   name: ${SECRET_SF3_NAME}-internal-api-credentials
+              # INTEGRATIONS_CALLER_SECRET, shared with the integrations.
+              # api panics at startup if a URL above is set without it.
+              - secretRef:
+                  name: staying-fit-integrations-caller
             # Keep serving for 5s after the pod is marked for deletion, before
             # SIGTERM starts graceful shutdown - gives the gateway and
             # Cilium's service LB time to stop routing new connections here
