@@ -80,11 +80,9 @@ I started this in July 2024 in a repo that's now archived, and moved to this one
 
 Most of the patterns I added after that came from the [Home Operations](https://discord.gg/home-operations) community and the [home-operations](https://github.com/home-operations) projects: tuppr, gatus-sidecar and a lot of the container images. If you want to build something like this, start with the template, not with this repo.
 
-If the history here looks suspiciously short, that's on purpose.
+If the history here looks suspiciously short, that's on purpose. The repo ran private for its first couple thousand commits, and a private repo collects things you wouldn't publish: LAN addresses, internal hostnames, NAS paths, CI running on in-cluster runners. Before going public I moved CI to GitHub hosted runners, pulled every one of those values into SOPS encrypted variables that Flux fills in at deploy time, rotated the SOPS key, cleared out dead apps, and checked the tree for anything that still leaked. That checking took nine separate review passes over about two and a half weeks, including a line by line read of my own, with automated leak checks rerun on every candidate tree in between. Most of the later passes still turned up something the earlier ones missed, which is the real lesson: one sweep is not enough. Only after a pass came back clean did I import it here as a single commit. The old repo stays private and archived; everything from here on happens in the open.
 
 ![The old private repo, unimatrix-03, at 2,202 commits before the public import](./docs/images/old-repo-commit-history.png)
-
-The repo ran private for its first couple thousand commits, and a private repo collects things you wouldn't publish: LAN addresses, internal hostnames, NAS paths, CI running on in-cluster runners. Before going public I moved CI to GitHub hosted runners, pulled every one of those values into SOPS encrypted variables that Flux fills in at deploy time, rotated the SOPS key, cleared out dead apps, and checked the tree for anything that still leaked. That checking took nine separate review passes over about two and a half weeks, including a line by line read of my own, with automated leak checks rerun on every candidate tree in between. Most of the later passes still turned up something the earlier ones missed, which is the real lesson: one sweep is not enough. Only after a pass came back clean did I import it here as a single commit. The old repo stays private and archived; everything from here on happens in the open.
 
 ## 🛠️ How it differs from the template
 
