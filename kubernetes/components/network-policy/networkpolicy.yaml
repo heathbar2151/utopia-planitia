@@ -5,7 +5,16 @@ kind: CiliumNetworkPolicy
 metadata:
   name: baseline
 spec:
-  endpointSelector: {}
+  # Every pod except the ones labeled network-policy/baseline: exclude.
+  # Cilium only adds allows, so a pod that needs less than the baseline
+  # (no internet, or one upstream host) opts out here and gets its full
+  # rule set from its own policy instead. A pod that opts out with no
+  # policy of its own is unfenced, not blocked.
+  endpointSelector:
+    matchExpressions:
+      - key: network-policy/baseline
+        operator: NotIn
+        values: [exclude]
   ingress:
     # Kubelet probes.
     - fromEntities: ["host"]

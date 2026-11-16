@@ -27,3 +27,113 @@ spec:
         - ports:
             - port: "3000"
               protocol: TCP
+---
+# yaml-language-server: $schema=https://kubernetes-schemas.pages.dev/cilium.io/ciliumnetworkpolicy_v2.json
+# staying-fit integrations: the only staying-fit pods that call the
+# internet, each to one upstream host. They opt out of the baseline, so
+# these are their only rules. Add an instance's api to the ingress list
+# when that instance moves to the integrations.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: staying-fit-integrations-usda
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/instance: staying-fit-integrations
+      app.kubernetes.io/controller: usda
+  ingress:
+    # Kubelet probes.
+    - fromEntities: ["host"]
+    - fromEndpoints:
+        - matchExpressions:
+            - key: app.kubernetes.io/controller
+              operator: In
+              values:
+                - ${SECRET_SF1_NAME}-api
+      toPorts:
+        - ports:
+            - port: "3010"
+              protocol: TCP
+  egress:
+    # DNS through Cilium's proxy, so the toFQDNs rule below learns the
+    # upstream's addresses.
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+          rules:
+            dns:
+              - matchPattern: "*"
+    - toFQDNs:
+        - matchName: api.nal.usda.gov
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: observability
+            app.kubernetes.io/instance: otel-collector
+      toPorts:
+        - ports:
+            - port: "4317"
+              protocol: TCP
+---
+# yaml-language-server: $schema=https://kubernetes-schemas.pages.dev/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: staying-fit-integrations-off
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/instance: staying-fit-integrations
+      app.kubernetes.io/controller: "off"
+  ingress:
+    # Kubelet probes.
+    - fromEntities: ["host"]
+    - fromEndpoints:
+        - matchExpressions:
+            - key: app.kubernetes.io/controller
+              operator: In
+              values:
+                - ${SECRET_SF1_NAME}-api
+      toPorts:
+        - ports:
+            - port: "3010"
+              protocol: TCP
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+          rules:
+            dns:
+              - matchPattern: "*"
+    - toFQDNs:
+        - matchName: world.openfoodfacts.org
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: observability
+            app.kubernetes.io/instance: otel-collector
+      toPorts:
+        - ports:
+            - port: "4317"
+              protocol: TCP

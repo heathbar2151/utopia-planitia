@@ -1,0 +1,30 @@
+---
+# yaml-language-server: $schema=https://kubernetes-schemas.pages.dev/kustomize.toolkit.fluxcd.io/kustomization_v1.json
+# staying-fit integrations: one shared pair (USDA FoodData Central and
+# Open Food Facts) that every instance's api calls. Stateless, no database.
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: &app staying-fit-integrations
+  namespace: &namespace self-hosted
+spec:
+  targetNamespace: *namespace
+  commonMetadata:
+    labels:
+      app.kubernetes.io/name: *app
+  dependsOn:
+    - name: onepassword
+      namespace: external-secrets
+    # Creates the staying-fit-ghcr-secret image pull secret.
+    - name: ${SECRET_SF1_NAME}
+      namespace: self-hosted
+  path: ./kubernetes/apps/self-hosted/staying-fit-integrations/app
+  prune: true
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+    namespace: flux-system
+  wait: false
+  interval: 30m
+  retryInterval: 1m
+  timeout: 5m
