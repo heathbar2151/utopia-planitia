@@ -29,7 +29,7 @@ spec:
           app:
             image: &image
               repository: ghcr.io/bluetellarite/staying-fit-integrations
-              tag: v0.69.0
+              tag: v0.70.0
             env:
               INTEGRATION: usda
               RUST_LOG: info
