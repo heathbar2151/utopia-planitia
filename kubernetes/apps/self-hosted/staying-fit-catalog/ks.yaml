@@ -1,0 +1,33 @@
+---
+# yaml-language-server: $schema=https://kubernetes-schemas.pages.dev/kustomize.toolkit.fluxcd.io/kustomization_v1.json
+# staying-fit catalog: the shared food and exercise catalog, one per
+# environment. "prod" serves the prod and gym instances, "dev" serves the
+# dev instance. Each has its own database on postgres16; no PVC.
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: &app staying-fit-catalog
+  namespace: &namespace self-hosted
+spec:
+  targetNamespace: *namespace
+  commonMetadata:
+    labels:
+      app.kubernetes.io/name: *app
+  dependsOn:
+    - name: onepassword
+      namespace: external-secrets
+    - name: cloudnative-pg-cluster
+      namespace: database
+    # Creates the staying-fit-ghcr-secret image pull secret.
+    - name: ${SECRET_SF1_NAME}
+      namespace: self-hosted
+  path: ./kubernetes/apps/self-hosted/staying-fit-catalog/app
+  prune: true
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+    namespace: flux-system
+  wait: false
+  interval: 30m
+  retryInterval: 1m
+  timeout: 5m
