@@ -79,6 +79,9 @@ spec:
               # that lookup off.
               USDA_INTEGRATION_URL: http://staying-fit-integrations-usda.self-hosted.svc.cluster.local:3010
               OFF_INTEGRATION_URL: http://staying-fit-integrations-off.self-hosted.svc.cluster.local:3010
+              # Dark launch: api polls and caches the catalog, the admin page shows
+              # drift, no page reads from it yet.
+              CATALOG_URL: http://staying-fit-catalog-dev.self-hosted.svc.cluster.local:3020
             envFrom:
               - secretRef:
                   name: ${SECRET_SF2_NAME}-db-credentials
@@ -93,6 +96,8 @@ spec:
               # api panics at startup if a URL above is set without it.
               - secretRef:
                   name: staying-fit-integrations-caller
+              - secretRef:
+                  name: staying-fit-catalog-dev-caller
             # Keep serving for 5s after the pod is marked for deletion, before
             # SIGTERM starts graceful shutdown - gives the gateway and
             # Cilium's service LB time to stop routing new connections here
