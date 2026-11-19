@@ -42,7 +42,7 @@ spec:
           app:
             image: &image
               repository: ghcr.io/bluetellarite/staying-fit-catalog
-              tag: v0.74.0
+              tag: v0.75.0
             env:
               RUST_LOG: info
               OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector.observability.svc.cluster.local:4317
