@@ -16,7 +16,6 @@ spec:
           - ${SECRET_SF1_NAME}-web
           - ${SECRET_SF3_NAME}-web
           - ${SECRET_SF4_NAME}-web
-          - ${SECRET_SF5_NAME}-web
   ingress:
     # The staying-fit instances with a public route.
     - fromEndpoints:
@@ -53,7 +52,6 @@ spec:
                 - ${SECRET_SF2_NAME}-api
                 - ${SECRET_SF3_NAME}-api
                 - ${SECRET_SF4_NAME}-api
-                - ${SECRET_SF5_NAME}-api
       toPorts:
         - ports:
             - port: "3010"
@@ -111,7 +109,6 @@ spec:
                 - ${SECRET_SF2_NAME}-api
                 - ${SECRET_SF3_NAME}-api
                 - ${SECRET_SF4_NAME}-api
-                - ${SECRET_SF5_NAME}-api
       toPorts:
         - ports:
             - port: "3010"
@@ -169,7 +166,6 @@ spec:
                 - ${SECRET_SF1_NAME}-api
                 - ${SECRET_SF3_NAME}-api
                 - ${SECRET_SF4_NAME}-api
-                - ${SECRET_SF5_NAME}-api
       toPorts:
         - ports:
             - port: "3020"
@@ -468,72 +464,6 @@ spec:
     - fromEndpoints:
         - matchLabels:
             app.kubernetes.io/controller: ${SECRET_SF4_NAME}-web
-      toPorts:
-        - ports:
-            - port: "3000"
-              protocol: TCP
-    - fromEndpoints:
-        - matchLabels:
-            k8s:io.kubernetes.pod.namespace: observability
-            app.kubernetes.io/name: prometheus
-  egress:
-    - toEndpoints:
-        - matchLabels:
-            k8s:io.kubernetes.pod.namespace: kube-system
-            k8s-app: kube-dns
-      toPorts:
-        - ports:
-            - port: "53"
-              protocol: UDP
-            - port: "53"
-              protocol: TCP
-    # Postgres (the init-db container too); the database namespace's own
-    # policy admits this api.
-    - toEndpoints:
-        - matchLabels:
-            k8s:io.kubernetes.pod.namespace: database
-      toPorts:
-        - ports:
-            - port: "5432"
-              protocol: TCP
-    - toEndpoints:
-        - matchLabels:
-            k8s:io.kubernetes.pod.namespace: observability
-            app.kubernetes.io/instance: otel-collector
-      toPorts:
-        - ports:
-            - port: "4317"
-              protocol: TCP
-    - toEndpoints:
-        - matchLabels:
-            app.kubernetes.io/instance: staying-fit-integrations
-      toPorts:
-        - ports:
-            - port: "3010"
-              protocol: TCP
-    - toEndpoints:
-        - matchLabels:
-            app.kubernetes.io/instance: staying-fit-catalog
-            app.kubernetes.io/controller: prod
-      toPorts:
-        - ports:
-            - port: "3020"
-              protocol: TCP
----
-apiVersion: cilium.io/v2
-kind: CiliumNetworkPolicy
-metadata:
-  name: ${SECRET_SF5_NAME}-api
-spec:
-  endpointSelector:
-    matchLabels:
-      app.kubernetes.io/controller: ${SECRET_SF5_NAME}-api
-  ingress:
-    # Kubelet probes.
-    - fromEntities: ["host"]
-    - fromEndpoints:
-        - matchLabels:
-            app.kubernetes.io/controller: ${SECRET_SF5_NAME}-web
       toPorts:
         - ports:
             - port: "3000"

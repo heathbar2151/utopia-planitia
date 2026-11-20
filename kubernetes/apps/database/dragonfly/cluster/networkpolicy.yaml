@@ -17,7 +17,7 @@ spec:
     - fromEndpoints:
         - matchLabels:
             k8s:io.kubernetes.pod.namespace: database
-    # Gitea and the four staying-fit web pods.
+    # Gitea and the staying-fit web pods.
     - fromEndpoints:
         - matchLabels:
             k8s:io.kubernetes.pod.namespace: devops
@@ -34,9 +34,6 @@ spec:
         - matchLabels:
             k8s:io.kubernetes.pod.namespace: self-hosted
             app.kubernetes.io/controller: ${SECRET_SF4_NAME}-web
-        - matchLabels:
-            k8s:io.kubernetes.pod.namespace: self-hosted
-            app.kubernetes.io/controller: ${SECRET_SF5_NAME}-web
       toPorts:
         - ports:
             - port: "6379"
