@@ -6,3 +6,12 @@ metadata:
   annotations:
     kustomize.toolkit.fluxcd.io/prune: disabled
     volsync.backube/privileged-movers: "true"
+  labels:
+    # Pod Security Standards, report-only for now: a pod that wouldn't meet
+    # "restricted" is still admitted, but the API server warns the client
+    # that created it and records it in the audit log. Enforcement is set
+    # per namespace in a later change, once these are clean or explained.
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/warn-version: latest
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/audit-version: latest
