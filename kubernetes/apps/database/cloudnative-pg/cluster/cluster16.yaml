@@ -57,13 +57,10 @@ spec:
         bypassrls: false
         passwordSecret:
           name: postgres16-${SECRET_SF4_NAME}-app
+      # Instance 5 is decommissioned. Drop this entry once CNPG has
+      # removed the role.
       - name: ${SECRET_SF5_DB}_app
-        ensure: present
-        login: true
-        superuser: false
-        bypassrls: false
-        passwordSecret:
-          name: postgres16-${SECRET_SF5_NAME}-app
+        ensure: absent
   resources:
     requests:
       cpu: 100m

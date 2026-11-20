@@ -46,9 +46,6 @@ spec:
         - matchLabels:
             k8s:io.kubernetes.pod.namespace: self-hosted
             app.kubernetes.io/controller: ${SECRET_SF4_NAME}-api
-        - matchLabels:
-            k8s:io.kubernetes.pod.namespace: self-hosted
-            app.kubernetes.io/controller: ${SECRET_SF5_NAME}-api
         # staying-fit catalog (prod and dev), each with its own database.
         - matchLabels:
             k8s:io.kubernetes.pod.namespace: self-hosted
