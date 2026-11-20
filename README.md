@@ -10,6 +10,8 @@ _... automated via [Flux](https://fluxcd.io), [Renovate](https://github.com/reno
 
 </div>
 
+A production-style GitOps platform on Talos Linux that runs my household's services. Every change ships as a pull request: CI renders and validates it, Flux applies it, Renovate keeps it current, and Talos and Kubernetes upgrades roll out from Git one node at a time, gated on node and Ceph health. The repo is public, with every network detail encrypted with SOPS, SSO through Authentik, and a written restore runbook for backups. Next up is splitting it into production and nonprod clusters, with new versions soaking on nonprod before they reach production.
+
 <div align="center">
 
 [![Discord](https://img.shields.io/discord/673534664354430999?style=for-the-badge&label&logo=discord&logoColor=white&color=blue)](https://discord.gg/home-operations)&nbsp;&nbsp;
