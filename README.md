@@ -120,7 +120,7 @@ After the February 2025 render I stopped re-rendering and started maintaining th
 
 **Network policy**
 
-- Hubble flow metrics record which workloads talk to which, and this data is used to create `CiliumNetworkPolicy` for each namespace.
+- Hubble flow metrics record which workloads talk to which, and I write `CiliumNetworkPolicy` from that data one namespace at a time. Some namespaces are fenced by a shared baseline policy and the most exposed workloads have their own; the rest of the cluster is still being worked through.
 
 **Everything else**
 
