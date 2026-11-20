@@ -125,14 +125,6 @@ data:
         attrs:
           is_superuser: false
       - model: authentik_core.group
-        state: absent
-        identifiers:
-          name: ${SECRET_AK_GROUP_SF5_USERS}
-      - model: authentik_core.group
-        state: absent
-        identifiers:
-          name: ${SECRET_AK_GROUP_SF5_ADMIN}
-      - model: authentik_core.group
         state: present
         identifiers:
           name: ${SECRET_AK_GROUP_SF3_ADMIN}
@@ -517,17 +509,6 @@ data:
           enabled: true
           negate: false
           timeout: 30
-      # Instance 5 was decommissioned; this deletes its application
-      # (its bindings go with it) and provider. Drop these entries, and
-      # the absent groups above, once applied.
-      - model: authentik_core.application
-        state: absent
-        identifiers:
-          slug: ${SECRET_SF5_AK_SLUG}
-      - model: authentik_providers_oauth2.oauth2provider
-        state: absent
-        identifiers:
-          name: Provider for ${SECRET_SF5_AK_NAME}
 
       # --- Radarr --- Envoy Gateway's
       # SecurityPolicy is the OIDC relying party here, not Radarr itself -
