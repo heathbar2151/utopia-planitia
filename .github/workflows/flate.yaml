@@ -2,13 +2,12 @@
 # yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
 name: "Flate"
 
+# Runs on every PR so it can be a required check: a PR that never gets the
+# check would wait on it forever. The Changes step skips the render and diff
+# when the PR doesn't touch anything flate reads, and the job passes.
 on:
   pull_request:
     branches: ["main"]
-    paths:
-      - "kubernetes/**"
-      - ".github/flate/**"
-      - ".github/workflows/flate.yaml"
 
 permissions:
   contents: read
@@ -35,7 +34,21 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      - name: Changes
+        id: changes
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          changed=$(git diff --name-only "origin/${BASE_REF}...HEAD")
+          if printf '%s\n' "$changed" | grep -qE '^(kubernetes/|\.github/flate/|\.github/workflows/flate\.yaml$)'; then
+            echo "relevant=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "relevant=false" >> "$GITHUB_OUTPUT"
+            echo "No Kubernetes or flate files changed; skipping render and diff." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
       - name: Setup flate
+        if: ${{ steps.changes.outputs.relevant == 'true' }}
         uses: home-operations/flate/action@bbb6ebc344da051752dbdb1b413860ceffcfb63d # v0.7.3
         with:
           cache: "true"
@@ -43,6 +56,7 @@ jobs:
       # cluster-secrets.sops.yaml can't be decrypted here, so supply the same
       # fake Secret in every namespace whose Kustomizations substitute from it.
       - name: Build CI inputs
+        if: ${{ steps.changes.outputs.relevant == 'true' }}
         env:
           SUPPLY: ${{ runner.temp }}/flate-supply.yaml
         run: |
@@ -60,13 +74,14 @@ jobs:
           echo "Supplied cluster-secrets in $(grep -c '^kind: Secret' "$SUPPLY") namespaces"
 
       - name: Test
+        if: ${{ steps.changes.outputs.relevant == 'true' }}
         env:
           SUPPLY: ${{ runner.temp }}/flate-supply.yaml
         run: flate test --supply "$SUPPLY" --no-progress
 
       - name: Diff
         id: diff
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.changes.outputs.relevant == 'true' }}
         env:
           SUPPLY: ${{ runner.temp }}/flate-supply.yaml
           DIFF: ${{ runner.temp }}/flate-diff.md
