@@ -22,6 +22,48 @@ spec:
     parameters:
       max_connections: "400"
       shared_buffers: 256MB
+  # Non-owner app roles for the staying-fit instances. Each api connects as
+  # its role (DATABASE_URL) and migrates as the database owner
+  # (DATABASE_MIGRATION_URL), which grants the role its table rights on
+  # every start, so row-level security holds. Passwords come from
+  # externalsecret-staying-fit-app.yaml.
+  managed:
+    roles:
+      - name: ${SECRET_SF1_DB}_app
+        ensure: present
+        login: true
+        superuser: false
+        bypassrls: false
+        passwordSecret:
+          name: postgres16-${SECRET_SF1_NAME}-app
+      - name: ${SECRET_SF2_DB}_app
+        ensure: present
+        login: true
+        superuser: false
+        bypassrls: false
+        passwordSecret:
+          name: postgres16-${SECRET_SF2_NAME}-app
+      - name: ${SECRET_SF3_DB}_app
+        ensure: present
+        login: true
+        superuser: false
+        bypassrls: false
+        passwordSecret:
+          name: postgres16-${SECRET_SF3_NAME}-app
+      - name: ${SECRET_SF4_DB}_app
+        ensure: present
+        login: true
+        superuser: false
+        bypassrls: false
+        passwordSecret:
+          name: postgres16-${SECRET_SF4_NAME}-app
+      - name: ${SECRET_SF5_DB}_app
+        ensure: present
+        login: true
+        superuser: false
+        bypassrls: false
+        passwordSecret:
+          name: postgres16-${SECRET_SF5_NAME}-app
   resources:
     requests:
       cpu: 100m

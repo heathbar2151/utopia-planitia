@@ -153,6 +153,19 @@ spec:
           - name: envoy-external
             namespace: network
         rules:
+          # The operator panel stays off the external route; a request for it
+          # goes to the home page instead.
+          - matches:
+              - path:
+                  type: PathPrefix
+                  value: /operator
+            filters:
+              - type: RequestRedirect
+                requestRedirect:
+                  path:
+                    type: ReplaceFullPath
+                    replaceFullPath: /
+                  statusCode: 302
           - backendRefs:
               - identifier: app
                 port: 3000
