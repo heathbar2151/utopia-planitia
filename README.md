@@ -183,7 +183,7 @@ Talos and Kubernetes upgrades are driven by [tuppr](https://github.com/home-oper
 
 The way Flux works for me here is it will recursively search the `kubernetes/apps` folder until it finds the most top level `kustomization.yaml` per directory and then apply all the resources listed in it. That aforementioned `kustomization.yaml` will generally only have a namespace resource and one or many Flux kustomizations. Those Flux kustomizations will generally have a `HelmRelease` or other resources related to the application underneath it which will be applied.
 
-[Renovate](https://github.com/renovatebot/renovate) watches my **entire** repository looking for dependency updates, when they are found a PR is automatically created. When some PRs are merged Flux applies the changes to my cluster. Talos and Kubernetes version bumps are never automerged, since merging one starts a cluster upgrade, and Kubernetes is held at 1.36 until Cilium supports 1.37.
+[Renovate](https://github.com/renovatebot/renovate) watches my **entire** repository looking for dependency updates, when they are found a PR is automatically created. When some PRs are merged Flux applies the changes to my cluster. Patch and digest updates merge themselves overnight once CI passes, and patches wait three days after release first so a bad one can be pulled. Minor and major updates, and anything in the platform itself (Cilium, Rook-Ceph, CloudNativePG, Flux, tuppr, Envoy Gateway, cert-manager), wait for me to review them. Talos and Kubernetes version bumps are never automerged, since merging one starts a cluster upgrade, and Kubernetes is held at 1.36 until Cilium supports 1.37.
 
 How a change gets from a PR to the cluster:
 
