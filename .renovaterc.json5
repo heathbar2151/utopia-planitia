@@ -13,8 +13,13 @@
   // re-runs CI on every open PR at once. Cap open PRs; the rest wait on
   // the dashboard.
   prConcurrentLimit: 10,
-  dependencyDashboard: true,
-  dependencyDashboardTitle: 'Renovate Dashboard 🤖',
+  // Minor and patch updates of the same dependency get separate branches,
+  // so a patch PR never turns into a minor bump under its original labels.
+  separateMinorPatch: true,
+  dependencyDashboard: {
+    enabled: true,
+    title: 'Renovate Dashboard 🤖',
+  },
   suppressNotifications: [
     'prEditedNotification',
     'prIgnoreNotification',
@@ -57,11 +62,24 @@
   },
   packageRules: [
     {
-      description: ["Auto-merge patch updates"],
-      matchUpdateTypes: ["patch"],
+      description: [
+        'Auto-merge patch and digest updates once CI passes, overnight. Patches wait 3 days after release so a bad one can be pulled first.',
+      ],
+      matchUpdateTypes: [
+        'patch',
+        'digest',
+      ],
       automerge: true,
-      automergeType: "pr",
-      automergeSchedule: ["after 11pm and before 6am"],
+      automergeType: 'pr',
+      automergeSchedule: [
+        'after 11pm and before 6am',
+      ],
+    },
+    {
+      matchUpdateTypes: [
+        'patch',
+      ],
+      minimumReleaseAge: '3 days',
     },
     {
       description: [
@@ -95,6 +113,26 @@
     },
     {
       description: [
+        'Platform components get a human review, even for patches: CNI, storage, database operator, GitOps, upgrades, gateway and certificates',
+      ],
+      matchPackageNames: [
+        '/cilium/',
+        '/rook-ceph/',
+        '/(^|/)ceph/ceph$/',
+        '/cloudnative-pg/',
+        '/barman-cloud/',
+        '/flux-operator/',
+        '/flux-instance/',
+        '/fluxcd/',
+        '/tuppr/',
+        '/envoyproxy/',
+        '/gateway-helm/',
+        '/cert-manager/',
+      ],
+      automerge: false,
+    },
+    {
+      description: [
         'Talos and Kubernetes versions (talos/topf.yaml + tuppr upgrade CRs) start a cluster upgrade as soon as they merge - never automerge them',
       ],
       matchPackageNames: [
@@ -119,6 +157,8 @@
       matchPackageNames: [
         'ghcr.io/bluetellarite/staying-fit-api',
         'ghcr.io/bluetellarite/staying-fit-web',
+        'ghcr.io/bluetellarite/staying-fit-catalog',
+        'ghcr.io/bluetellarite/staying-fit-integrations',
       ],
       enabled: false,
     },
