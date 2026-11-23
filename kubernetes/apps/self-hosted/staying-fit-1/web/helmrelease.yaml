@@ -71,6 +71,10 @@ spec:
               JWT_PRIVATE_KEY_PATH: /app/data/jwt/private.pem
               JWT_PUBLIC_KEY_PATH: /app/data/jwt/public.pem
               OIDC_PROVIDER_LABEL: Authentik
+              # Members of this Authentik group can sign into the operator panel
+              # with a fresh SSO sign-in. The panel is only served on the
+              # internal route below.
+              OIDC_OPERATOR_GROUP: ${SECRET_AK_GROUP_SF1_OPERATOR}
               # SSO login-handshake state shared across web replicas via the
               # cluster's shared Dragonfly (database ns), one DB index per instance;
               # pick an unused index for a new instance. web refuses to start if this
@@ -144,6 +148,17 @@ spec:
     # This app has its own login (local accounts/OIDC), so it needs no
     # SecurityPolicy/native-OIDC wiring.
     route:
+      # LAN clients resolve the host to envoy-internal, which serves the
+      # whole app including the operator panel.
+      internal:
+        hostnames: ["${SECRET_SF1_HOST}.${SECRET_DOMAIN}"]
+        parentRefs:
+          - name: envoy-internal
+            namespace: network
+        rules:
+          - backendRefs:
+              - identifier: app
+                port: 3000
       app:
         annotations:
           gatus.home-operations.com/endpoint: |-

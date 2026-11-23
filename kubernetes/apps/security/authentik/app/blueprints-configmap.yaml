@@ -139,6 +139,12 @@ data:
       - model: authentik_core.group
         state: present
         identifiers:
+          name: ${SECRET_AK_GROUP_SF1_OPERATOR}
+        attrs:
+          is_superuser: false
+      - model: authentik_core.group
+        state: present
+        identifiers:
           name: ${SECRET_AK_GROUP_SF2_ADMIN}
         attrs:
           is_superuser: false
