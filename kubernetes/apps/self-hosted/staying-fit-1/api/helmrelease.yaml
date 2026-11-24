@@ -99,6 +99,9 @@ spec:
                   name: staying-fit-integrations-caller
               - secretRef:
                   name: staying-fit-catalog-prod-caller
+              # CATALOG_OPERATOR_SECRET: only prod hosts the operator panel.
+              - secretRef:
+                  name: staying-fit-catalog-prod-operator
             # Keep serving for 5s after the pod is marked for deletion, before
             # SIGTERM starts graceful shutdown - gives the gateway and
             # Cilium's service LB time to stop routing new connections here
