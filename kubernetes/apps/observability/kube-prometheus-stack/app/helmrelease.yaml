@@ -34,6 +34,11 @@ spec:
     crds:
       enabled: false
     cleanPrometheusOperatorObjectNames: true
+    defaultRules:
+      disabled:
+        # Replaced by NodeMemoryHighUtilization in prometheusrule.yaml, which
+        # counts reclaimable ZFS ARC as available memory on the NAS.
+        NodeMemoryHighUtilization: true
     alertmanager:
       route:
         main:

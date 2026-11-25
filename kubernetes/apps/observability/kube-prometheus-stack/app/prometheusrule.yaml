@@ -32,3 +32,24 @@ spec:
           for: 15m
           labels:
             severity: critical
+    - name: node-memory
+      rules:
+        # The stock rule uses MemAvailable, which leaves out the ZFS ARC. On
+        # the NAS the ARC grows into most of RAM, so the stock rule fires
+        # while the memory is still reclaimable. Count the ARC above its
+        # minimum as available; nodes without ZFS fall back to MemAvailable.
+        - alert: NodeMemoryHighUtilization
+          annotations:
+            summary: Host is running out of memory.
+            description: Memory is filled up at {{ printf "%.2f" $value }}% on {{ $labels.instance }}.
+          expr: |
+            100 - (
+              (
+                (node_memory_MemAvailable_bytes{job="node-exporter"} + (node_zfs_arc_size{job="node-exporter"} - node_zfs_arc_c_min{job="node-exporter"}))
+                or node_memory_MemAvailable_bytes{job="node-exporter"}
+              )
+              / node_memory_MemTotal_bytes{job="node-exporter"} * 100
+            ) > 90
+          for: 15m
+          labels:
+            severity: warning
