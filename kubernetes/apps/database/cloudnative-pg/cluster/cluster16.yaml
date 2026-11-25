@@ -29,6 +29,22 @@ spec:
   # externalsecret-staying-fit-app.yaml.
   managed:
     roles:
+      # Prod staying-fit's database owner (created by its postgres-init
+      # container). Managed only to give it CREATEDB, which database tenancy
+      # mode needs to create space databases. No passwordSecret: CNPG then
+      # leaves the password alone, and postgres-init keeps setting it. Every
+      # attribute below matches the role as it was, since CNPG resets
+      # omitted ones to their defaults.
+      - name: ${SECRET_SF1_DB_OWNER}
+        ensure: present
+        login: true
+        superuser: false
+        createdb: true
+        createrole: false
+        replication: false
+        bypassrls: false
+        inherit: true
+        connectionLimit: -1
       - name: ${SECRET_SF1_DB}_app
         ensure: present
         login: true

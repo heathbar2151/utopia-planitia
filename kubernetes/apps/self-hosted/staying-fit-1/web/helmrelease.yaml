@@ -65,6 +65,10 @@ spec:
               # `self-hosted` namespace, ClusterIP-only (see api/helmrelease.yaml).
               API_BASE_URL: http://${SECRET_SF1_NAME}-api:3000
               WEB_PUBLIC_URL: https://${SECRET_SF1_HOST}.${SECRET_DOMAIN}
+              # Each space answers on <name>.<BASE_DOMAIN>. The default space is
+              # named after this instance's subdomain, so WEB_PUBLIC_URL stays
+              # its host; hosts outside BASE_DOMAIN (probes) get the default space.
+              BASE_DOMAIN: ${SECRET_DOMAIN}
               # File paths, not secret values - key bytes come from the
               # jwt Secret volume mounted below (same Secret api mounts,
               # web additionally needs the private half to mint sessions).
