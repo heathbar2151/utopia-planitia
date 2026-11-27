@@ -56,7 +56,7 @@ spec:
           app:
             image:
               repository: ghcr.io/goauthentik/server
-              tag: 2026.8@sha256:602227a86455d6772e3d16b7d852713c4f864f40df5df894abd1285bb53979a5
+              tag: 2026.8@sha256:1675a017c46ba7f4f15333aeafeeb64538c581673bcbcd36af872cdf7de4e7f7
             # k8s `command` replaces the image's ENTRYPOINT entirely (unlike
             # Compose's `command`, which only overrides CMD and keeps
             # ENTRYPOINT) - the image's own entrypoint script is what actually
