@@ -15,3 +15,13 @@ resources:
   - ./intel-device-plugin/ks.yaml
   - ./node-feature-discovery/ks.yaml
   - ./generic-device-plugin/ks.yaml
+patches:
+  # Pod Security Standards: override the "baseline" default from
+  # components/common. Runs workloads that need host access or extra privileges, so
+  # "baseline" would block them. warn and audit still report at "restricted".
+  - target:
+      kind: Namespace
+    patch: |-
+      - op: replace
+        path: /metadata/labels/pod-security.kubernetes.io~1enforce
+        value: privileged

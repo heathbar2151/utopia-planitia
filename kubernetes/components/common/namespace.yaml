@@ -7,10 +7,13 @@ metadata:
     kustomize.toolkit.fluxcd.io/prune: disabled
     volsync.backube/privileged-movers: "true"
   labels:
-    # Pod Security Standards, report-only for now: a pod that wouldn't meet
-    # "restricted" is still admitted, but the API server warns the client
-    # that created it and records it in the audit log. Enforcement is set
-    # per namespace in a later change, once these are clean or explained.
+    # Pod Security Standards. Every namespace enforces "baseline" unless its
+    # kustomization patches enforce to "restricted" (already clean) or
+    # "privileged" (runs host-level or extra-privileged workloads). warn and
+    # audit stay at "restricted" everywhere, so remaining gaps keep showing
+    # up as warnings and audit events.
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/enforce-version: latest
     pod-security.kubernetes.io/warn: restricted
     pod-security.kubernetes.io/warn-version: latest
     pod-security.kubernetes.io/audit: restricted
