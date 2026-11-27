@@ -34,6 +34,13 @@ spec:
         enabled: true
     backgroundController:
       replicas: 1
+      # limit-revision-history mutates existing Deployments in the background.
+      rbac:
+        clusterRole:
+          extraResources:
+            - apiGroups: [apps]
+              resources: [deployments]
+              verbs: [get, list, watch, update, patch]
       serviceMonitor:
         enabled: true
     cleanupController:

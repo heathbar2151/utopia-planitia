@@ -1,0 +1,42 @@
+---
+# yaml-language-server: $schema=https://kubernetes-schemas.pages.dev/policies.kyverno.io/mutatingpolicy_v1.json
+apiVersion: policies.kyverno.io/v1
+kind: MutatingPolicy
+metadata:
+  name: limit-revision-history
+  annotations:
+    policies.kyverno.io/title: Limit Deployment revision history
+    policies.kyverno.io/description: >-
+      Keeps at most 3 old ReplicaSets per Deployment, matching app-template's
+      default. Most charts and operators leave the Kubernetes default of 10,
+      and the scaled-to-zero ReplicaSets that piles up sit in etcd.
+spec:
+  # A Kyverno outage just leaves the limit as it was.
+  failurePolicy: Ignore
+  evaluation:
+    admission:
+      enabled: true
+    # Also fix Deployments that already exist, including the ones operators
+    # create (Rook) that no chart value reaches. Lowering the limit only
+    # prunes old ReplicaSets; it never restarts pods.
+    mutateExisting:
+      enabled: true
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [apps]
+        apiVersions: [v1]
+        operations: [CREATE, UPDATE]
+        resources: [deployments]
+  matchConditions:
+    - name: keeps-more-than-three
+      expression: >-
+        !has(object.spec.revisionHistoryLimit) || object.spec.revisionHistoryLimit > 3
+  mutations:
+    - patchType: ApplyConfiguration
+      applyConfiguration:
+        expression: >-
+          Object{
+            spec: Object.spec{
+              revisionHistoryLimit: 3
+            }
+          }
