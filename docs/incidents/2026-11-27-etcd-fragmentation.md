@@ -44,7 +44,7 @@ mise exec -- talosctl -n <leader-ip> etcd defrag
 mise exec -- talosctl -n <node-1-ip>,<node-2-ip>,<node-3-ip> etcd status
 ```
 
-Expected result: DB SIZE drops to roughly the IN USE figure (about 106 MiB) on every member, and the alert clears within its 10 minute window.
+Expected result: on each member after its defrag, DB SIZE drops to roughly the live data (about 100 MiB here) and the IN USE percentage in `etcd status` jumps to the high 90s. A member that hasn't been defragged yet still shows about 40%. Once all three are done, the alert clears within its 10 minute window.
 
 ## Prevention
 
