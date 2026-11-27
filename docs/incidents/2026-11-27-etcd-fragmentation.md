@@ -54,7 +54,7 @@ Live data is now permanently above 100 MiB, so the alert will come back as fragm
 
 - [ ] Scheduled defrag: deferred. Defrag needs the Talos `os:operator` role, which can also reboot and shut down nodes, so an in-cluster job holding it is a bigger risk than fragmenting slowly. Defrag by hand when the alert fires (steps above). An etcd snapshot job (only needs `os:etcd:backup`) comes first.
 - [ ] Kyverno report volume: reports for old ReplicaSets stop once the scope fix ([#81](https://github.com/heathbar2151/utopia-planitia/pull/81)) works through; check they've cleared.
-- [x] Lower `revisionHistoryLimit` on Deployments. Most of the cluster's ReplicaSets were old ones scaled to zero, each an object in etcd (and a report). A Kyverno mutation now caps every Deployment at 3, operator-created ones included.
+- [x] Lower `revisionHistoryLimit` on Deployments. Most of the cluster's ReplicaSets were old ones scaled to zero, each an object in etcd (and a report). A Kyverno mutation now caps every Deployment at 3, operator-created ones included ([#83](https://github.com/heathbar2151/utopia-planitia/pull/83)).
 
 ## How to check
 
