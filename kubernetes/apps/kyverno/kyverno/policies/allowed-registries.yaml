@@ -17,6 +17,12 @@ spec:
       enabled: true
     background:
       enabled: true
+  # Check pods plus the controllers people edit. ReplicaSets are left out:
+  # Deployments keep old ones scaled to zero for rollback, and checking
+  # those only repeats stale results.
+  autogen:
+    podControllers:
+      controllers: [deployments, statefulsets, daemonsets, jobs, cronjobs]
   matchConstraints:
     resourceRules:
       - apiGroups: [""]
@@ -33,7 +39,7 @@ spec:
     - name: allowed
       expression: >-
         ['quay.io', 'ghcr.io', 'registry.k8s.io', 'docker.io', 'index.docker.io',
-         'docker.gitea.com', 'codeberg.org']
+         'docker.gitea.com', 'codeberg.org', 'reg.kyverno.io']
   validations:
     - expression: >-
         variables.containers.all(c, image(c.image).registry() in variables.allowed)
