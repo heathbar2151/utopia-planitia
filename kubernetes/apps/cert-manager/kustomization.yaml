@@ -7,3 +7,12 @@ components:
   - ../../components/common
 resources:
   - ./cert-manager/ks.yaml
+patches:
+  # Pod Security Standards: override the "baseline" default from
+  # components/common. Every pod here already meets "restricted", so enforce it.
+  - target:
+      kind: Namespace
+    patch: |-
+      - op: replace
+        path: /metadata/labels/pod-security.kubernetes.io~1enforce
+        value: restricted
