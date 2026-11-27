@@ -16,3 +16,31 @@ instance:
     pullSecret: github-deploy-key
     ref: "refs/heads/main"
     path: kubernetes/flux/cluster
+  kustomize:
+    patches:
+      # Pod Security Standards for flux-system. Flux Operator owns this
+      # Namespace (cluster-apps skips it), so its labels are set here
+      # instead of through components/common. The Flux controllers already
+      # meet "restricted", so enforce it, and audit at the same level.
+      - target:
+          kind: Namespace
+          name: flux-system
+        patch: |-
+          - op: add
+            path: /metadata/labels/pod-security.kubernetes.io~1enforce
+            value: restricted
+          - op: add
+            path: /metadata/labels/pod-security.kubernetes.io~1enforce-version
+            value: latest
+          - op: add
+            path: /metadata/labels/pod-security.kubernetes.io~1warn
+            value: restricted
+          - op: add
+            path: /metadata/labels/pod-security.kubernetes.io~1warn-version
+            value: latest
+          - op: add
+            path: /metadata/labels/pod-security.kubernetes.io~1audit
+            value: restricted
+          - op: add
+            path: /metadata/labels/pod-security.kubernetes.io~1audit-version
+            value: latest
