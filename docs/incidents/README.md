@@ -49,4 +49,4 @@ The queries or commands that show it's healthy again.
 
 | Date | Incident | Status |
 |---|---|---|
-| 2026-11-27 | [etcd fragmentation alert after adding Kyverno](./2026-11-27-etcd-fragmentation.md) | Mitigation pending |
+| 2026-11-27 | [etcd fragmentation alert after adding Kyverno](./2026-11-27-etcd-fragmentation.md) | Mitigated |

@@ -5,13 +5,15 @@
 | Date | 2026-11-27 |
 | Alert | `etcdDatabaseHighFragmentationRatio` (warning) |
 | Impact | None. etcd stayed healthy; the alert was the only symptom. |
-| Status | Mitigation pending (defrag) |
+| Status | Mitigated (defrag done; scheduled defrag still a follow-up) |
 
 ## What happened
 
 - 17:50 Kyverno went in (audit-only policies). Its reports controller started writing PolicyReports, about 820 of them, plus one per old ReplicaSet.
 - Live data in etcd went from about 96.5 MiB, where it had sat all day, to about 106 MiB.
 - 18:08 `etcdDatabaseHighFragmentationRatio` started firing on all three members.
+- 19:35 to 19:42 each member defragmented by hand, followers first, leader last. Every file went from about 256 MiB to about 101 MiB, and the lowest in-use ratio went from about 38% to 98%.
+- 19:42 the alert cleared. No leader changes, every member kept a leader throughout.
 
 ## Root cause
 
@@ -44,7 +46,7 @@ mise exec -- talosctl -n <leader-ip> etcd defrag
 mise exec -- talosctl -n <node-1-ip>,<node-2-ip>,<node-3-ip> etcd status
 ```
 
-Expected result: on each member after its defrag, DB SIZE drops to roughly the live data (about 100 MiB here) and the IN USE percentage in `etcd status` jumps to the high 90s. A member that hasn't been defragged yet still shows about 40%. Once all three are done, the alert clears within its 10 minute window.
+Expected result: on each member after its defrag, DB SIZE drops to roughly the live data (about 100 MiB here) and the IN USE percentage in `etcd status` jumps to the high 90s. A member that hasn't been defragged yet still shows about 40%. Check that before moving to the next one: the commands only differ by IP, so it's easy to run the same node twice. Use `etcd status` for this rather than per-node Prometheus labels, which can lag or be misleading. Once all three are done, the alert clears within its 10 minute window.
 
 ## Prevention
 
