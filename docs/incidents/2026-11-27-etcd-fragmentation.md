@@ -52,9 +52,9 @@ Expected result: on each member after its defrag, DB SIZE drops to roughly the l
 
 Live data is now permanently above 100 MiB, so the alert will come back as fragmentation builds up again. Follow-ups:
 
-- [ ] Scheduled defrag: a CronJob running `talosctl etcd defrag` against each member in turn, with a Talos API client limited to what that needs.
+- [ ] Scheduled defrag: deferred. Defrag needs the Talos `os:operator` role, which can also reboot and shut down nodes, so an in-cluster job holding it is a bigger risk than fragmenting slowly. Defrag by hand when the alert fires (steps above). An etcd snapshot job (only needs `os:etcd:backup`) comes first.
 - [ ] Kyverno report volume: reports for old ReplicaSets stop once the scope fix ([#81](https://github.com/heathbar2151/utopia-planitia/pull/81)) works through; check they've cleared.
-- [ ] Consider a lower `revisionHistoryLimit` on Deployments. Most of the cluster's ReplicaSets are old ones scaled to zero, and each is an object in etcd (and now a report).
+- [x] Lower `revisionHistoryLimit` on Deployments. Most of the cluster's ReplicaSets were old ones scaled to zero, each an object in etcd (and a report). A Kyverno mutation now caps every Deployment at 3, operator-created ones included.
 
 ## How to check
 
