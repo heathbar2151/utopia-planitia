@@ -20,3 +20,4 @@ resources:
   - ./rook-ceph.yaml
   - ./prometheus-community.yaml
   - ./piraeus.yaml
+  - ./kyverno.yaml
