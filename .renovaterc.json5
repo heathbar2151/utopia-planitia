@@ -24,6 +24,8 @@
     'prEditedNotification',
     'prIgnoreNotification',
   ],
+  // Without a timezone, schedule and automergeSchedule run in UTC.
+  timezone: 'America/New_York',
   schedule: [
     'every weekend',
   ],
