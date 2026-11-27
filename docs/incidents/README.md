@@ -49,5 +49,5 @@ The queries or commands that show it's healthy again.
 
 | Date | Incident | Status |
 |---|---|---|
-| 2026-11-27 | [Zulip unready after a RabbitMQ restart](./2026-11-27-zulip-rabbitmq-stale-connection.md) | Mitigated |
+| 2026-11-27 | [Zulip unready after a RabbitMQ restart](./2026-11-27-zulip-rabbitmq-stale-connection.md) | Resolved |
 | 2026-11-27 | [etcd fragmentation alert after adding Kyverno](./2026-11-27-etcd-fragmentation.md) | Mitigated |

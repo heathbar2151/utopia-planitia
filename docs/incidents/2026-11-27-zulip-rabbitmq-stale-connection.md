@@ -5,7 +5,7 @@
 | Date | 2026-11-27 |
 | Alert | None. Found by checking Zulip directly. |
 | Impact | Zulip unreachable for about 25 minutes. The pod was unready, so the Service had no endpoints. |
-| Status | Mitigated (web process restarted; prevention still open) |
+| Status | Resolved (web process restarted; liveness now catches this) |
 
 ## What happened
 
@@ -41,8 +41,8 @@ mise exec -- kubectl -n self-hosted rollout restart deploy/zulip
 ## Prevention
 
 - [x] Renovate automerge window now runs in New York time ([#84](https://github.com/heathbar2151/utopia-planitia/pull/84)), so updates like this land overnight instead of in the evening. This makes it less likely to be noticed, not less likely to happen.
-- [ ] Stop the stale connection from staying stale. Options: a liveness probe on `/health` with a long failure window (several minutes, longer than a normal RabbitMQ restart), or restart Zulip whenever RabbitMQ is replaced.
-- [ ] Decide whether RabbitMQ updates should still automerge while the item above is open.
+- [x] Liveness now uses `/health` with a 5 minute failure window (10 failures, 30 seconds apart). A normal RabbitMQ restart finishes well inside that; a web server stuck on a dead connection gets restarted by Kubernetes instead of waiting for someone to notice.
+- [ ] Decide whether RabbitMQ updates should keep automerging. With the liveness change, each one can still mean up to about 5 minutes of Zulip being unready.
 
 ## How to check
 
