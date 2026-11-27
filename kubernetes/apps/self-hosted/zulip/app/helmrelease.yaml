@@ -117,20 +117,21 @@ spec:
               - secretRef:
                   name: zulip
             probes:
-              # Liveness only checks nginx in this container answers (a static
-              # file, no Django or backends). /health also checks Postgres,
-              # RabbitMQ, Valkey and memcached, so using it for liveness turned a
-              # RabbitMQ restart into a full Zulip reboot; supervisord already
-              # restarts Zulip's own processes if they die.
+              # Liveness uses /health, which also checks Postgres, RabbitMQ,
+              # Valkey and memcached, but only fails after 5 minutes. A short
+              # window turned every RabbitMQ restart into a full Zulip reboot.
+              # With no liveness on /health, zulip-django kept a dead RabbitMQ
+              # connection after a RabbitMQ restart and stayed unready until
+              # restarted by hand (docs/incidents/2026-11-27-zulip-rabbitmq-stale-connection.md).
               liveness:
                 enabled: true
                 custom: true
                 spec:
                   exec:
-                    command: ["curl", "--silent", "--fail", "--max-time", "5", "http://127.0.0.1/static/images/logo/zulip-icon-128x128.png"]
-                  periodSeconds: 10
+                    command: ["curl", "--silent", "--fail", "--max-time", "5", "http://127.0.0.1/health"]
+                  periodSeconds: 30
                   timeoutSeconds: 6
-                  failureThreshold: 6
+                  failureThreshold: 10
               # Readiness keeps the full /health (via loopback: /health trusts
               # 127.0.0.1 regardless of LOADBALANCER_IPS), so traffic pauses
               # while a backend is down instead of the container being killed.
