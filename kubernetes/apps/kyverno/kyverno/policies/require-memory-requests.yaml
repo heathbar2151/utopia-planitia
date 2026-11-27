@@ -1,0 +1,31 @@
+---
+# yaml-language-server: $schema=https://kubernetes-schemas.pages.dev/policies.kyverno.io/validatingpolicy_v1.json
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: require-memory-requests
+  annotations:
+    policies.kyverno.io/title: Require memory requests
+    policies.kyverno.io/description: >-
+      Reports containers without a memory request, which the scheduler then places blind.
+spec:
+  # Report only: results land in PolicyReports and Kyverno's metrics.
+  validationActions: [Audit]
+  failurePolicy: Ignore
+  evaluation:
+    admission:
+      enabled: true
+    background:
+      enabled: true
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: [v1]
+        operations: [CREATE, UPDATE]
+        resources: [pods]
+  validations:
+    - expression: >-
+        object.spec.containers.all(c, c.?resources.?requests.?memory.hasValue())
+      messageExpression: >-
+        'containers without a memory request: ' +
+        object.spec.containers.filter(c, !c.?resources.?requests.?memory.hasValue()).map(c, c.name).join(', ')

@@ -1,0 +1,42 @@
+---
+# yaml-language-server: $schema=https://kubernetes-schemas.pages.dev/policies.kyverno.io/validatingpolicy_v1.json
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: allowed-registries
+  annotations:
+    policies.kyverno.io/title: Allowed image registries
+    policies.kyverno.io/description: >-
+      Reports containers whose image comes from a registry outside the ones this cluster uses.
+spec:
+  # Report only: results land in PolicyReports and Kyverno's metrics.
+  validationActions: [Audit]
+  failurePolicy: Ignore
+  evaluation:
+    admission:
+      enabled: true
+    background:
+      enabled: true
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: [v1]
+        operations: [CREATE, UPDATE]
+        resources: [pods]
+  variables:
+    - name: containers
+      expression: >-
+        object.spec.containers
+        + object.spec.?initContainers.orValue([])
+        + object.spec.?ephemeralContainers.orValue([])
+    # Docker Hub parses as index.docker.io whether or not docker.io is written.
+    - name: allowed
+      expression: >-
+        ['quay.io', 'ghcr.io', 'registry.k8s.io', 'docker.io', 'index.docker.io',
+         'docker.gitea.com', 'codeberg.org']
+  validations:
+    - expression: >-
+        variables.containers.all(c, image(c.image).registry() in variables.allowed)
+      messageExpression: >-
+        'image from a registry outside the allowed list: ' +
+        variables.containers.filter(c, !(image(c.image).registry() in variables.allowed)).map(c, c.image).join(', ')

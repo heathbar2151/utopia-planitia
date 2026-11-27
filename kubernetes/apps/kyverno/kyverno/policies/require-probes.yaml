@@ -1,0 +1,34 @@
+---
+# yaml-language-server: $schema=https://kubernetes-schemas.pages.dev/policies.kyverno.io/validatingpolicy_v1.json
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: require-probes
+  annotations:
+    policies.kyverno.io/title: Require probes
+    policies.kyverno.io/description: >-
+      Reports long-running workloads with a container that has neither a readiness nor a liveness probe.
+spec:
+  # Report only: results land in PolicyReports and Kyverno's metrics.
+  validationActions: [Audit]
+  failurePolicy: Ignore
+  evaluation:
+    admission:
+      enabled: true
+    background:
+      enabled: true
+  # Long-running workloads only: Jobs and CronJobs finish, so probes don't apply.
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [apps]
+        apiVersions: [v1]
+        operations: [CREATE, UPDATE]
+        resources: [deployments, statefulsets, daemonsets]
+  validations:
+    - expression: >-
+        object.spec.template.spec.containers.all(c,
+          has(c.readinessProbe) || has(c.livenessProbe))
+      messageExpression: >-
+        'containers without a readiness or liveness probe: ' +
+        object.spec.template.spec.containers.filter(c,
+          !(has(c.readinessProbe) || has(c.livenessProbe))).map(c, c.name).join(', ')
