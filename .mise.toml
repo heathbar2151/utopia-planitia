@@ -16,7 +16,7 @@ run = "uv pip install -r requirements.txt"
 [tools]
 python = "3.15.1"
 uv = "0.13.4"
-"aqua:postfinance/topf" = "0.6.1"
+"aqua:postfinance/topf" = "0.6.2"
 "aqua:cli/cli" = "2.102.1"
 "aqua:cloudflare/cloudflared" = "2026.10.3"
 "aqua:cue-lang/cue" = "0.17.1"
