@@ -42,7 +42,7 @@ mise exec -- kubectl -n self-hosted rollout restart deploy/zulip
 
 - [x] Renovate automerge window now runs in New York time ([#84](https://github.com/heathbar2151/utopia-planitia/pull/84)), so updates like this land overnight instead of in the evening. This makes it less likely to be noticed, not less likely to happen.
 - [x] Liveness now uses `/health` with a 5 minute failure window (10 failures, 30 seconds apart). A normal RabbitMQ restart finishes well inside that; a web server stuck on a dead connection gets restarted by Kubernetes instead of waiting for someone to notice.
-- [ ] Decide whether RabbitMQ updates should keep automerging. With the liveness change, each one can still mean up to about 5 minutes of Zulip being unready.
+- [x] RabbitMQ updates keep automerging like any other patch or digest update, with no special rule. The liveness change caps the cost of a bad one at about 5 minutes of Zulip being unready.
 
 ## How to check
 
